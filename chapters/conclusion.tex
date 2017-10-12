@@ -1,0 +1,126 @@
+In this dissertation, we have presented methods for developing more human-like and interactive 
+ conversational agents. We discussed the opportunities presented by 
+current deep-learning models in chat-bot development, along with challenges that arise, and how to tackle them. 
+In this section, we will conclude this thesis and discuss the challenges that are still faced by 
+current conversational systems, and suggest future work to tackle them.
+
+In Chapter 3, we discussed 
+how to address 
+the issue that current neural chit-chat systems tend to 
+produce  dull, generic, and uninteresting responses such as ``{\it i don't know}" or 
+``{\it i don't know what you are talking about}. We discovered that this is due to the maximum-likelihood objective function
+adopted in standard sequence generation systems. We proposed using  mutual information 
+as the objective function in  place of the MLE objective function, where we not only want the generated response to be specific 
+to the input dialogue history, but  want the dialogue history to be specific to the generated response as well.
+Using  MMI as an objective function, we observed that the model is able to generate more specific, coherent, and 
+interesting responses. 
+
+
+In Chapter 4, we discussed how to give the model a consistent persona to preserve its speaker consistency. 
+We proposed using user embeddings to encode the information of users, such as user attributes or word usage tendency. 
+These embeddings are incorporated into the neural encoder-decoder models, pushing the model to generate more consistent responses. 
+We also proposed a speaker-addressee model, in which the utterance that the conversational agent  generates not only
+depends on the identify of the speaker, but also the identify of its dialogue parter. 
+We observe a clear performance improvement introduced by the proposed persona model and the speaker-addressee model in automatic evaluation
+metrics BLEU and perplexity. 
+Human evaluation performed by Turkers also demonstrates that the proposed persona model is able to generate more consistent responses than
+the vanilla \sts models.
+
+In Chapter 5, we proposed a 
+multi-turn dialogue
+system, in which we are not only  concerned with the quality of single-turn conversations,  
+but the overall success of multi-turn conversations. The MLE objective function used in standard \sts models is trained to predict the next turn utterance, and is thus
+ not suited for a system optimized 
+for multi-turn dialogue success, especially because the positive or negative outcome of a dialogue utterance in a multi-turn dialogue usually does not show up after a few turns later. 
+We proposed to tackle this issue using reinforcement learning, in which we created a scenario for the two bots to talk with each other. We manually designed three types of rewards that we 
+think are important for a successful conversation, namely, ease to follow, informational flow, and meaningfulness. The RL system is trained to push the system 
+to generate responses that are highly rewarded regarding these three aspects. Human evaluation illustrates that the proposed RL system tends to generate more sustainable conversations. 
+
+In Chapter 6, we proposed a more generic reward function for training a RL-based dialogue system: a
+machine-generated
+ response is highly rewarded it it is
+indistinguishable human-generated responses. 
+We proposed  using adversarial learning, in which we jointly train two models, 
+a generator that defines the probability of generating a dialogue sequence given input dialogue history, and 
+a discriminator
+that labels dialogues as human-generated or machine-generated. 
+We cast the task as a reinforcement learning problem, in which the quality of machine-generated utterances is measured by its ability to fool the discriminator into believing that it is a human-generated one. The output from the discriminator is used as a reward to the generator, pushing it to generate 
+utterances indistinguishable from human-generated dialogues. 
+Human evaluation reveals that that the proposed adversarial reinforcement learning is able to generate better-quality responses. 
+
+In Chapter 7, we focused on the task of developing interactive QA dialogue agents, where we give  an agent the ability to ask its dialogue partner questions. 
+We define three scenarios where we think the bot can benefit from asking questions:
+(1) question clarification, in which the bot asks its dialogue partner for text clarification; (2) knowledge operation, in which the bot asks the teacher for hints on relevant knowledge-base fact; and (3)
+knowledge acquisition, in which the bot asks about new knowledge. 
+We validated that the bot always benefits from asking questions in these three scenarios. 
+We additionally explored how a bot can learn when it should ask questions by designing a setting where the action of question asking comes at a cost. 
+This has real-world implications since it would be  user-unfriendly if a dialogue agent asks questions all the time. 
+We designed a reinforcement learning system, within which the bot is able to automatically figure out when it should ask questions that will lead to highest future rewards.
+
+
+In Chapter 8, we designed a RL system that gives the bot the ability to learn from online feedback: adapting its model when making mistakes and reinforcing the model when users' feedback is positive.  
+The bot takes advantage of both explicit numerical rewards, and textual feedback which is more natural in human dialogue. 
+We explore important issues such as how a bot can be most efficiently trained using a minimal amount of user feedback, how to avoid pitfalls such as instability during online learning with different types of feedback via data balancing and exploration, and how to make learning with real humans feasible via data batching.
+We show that it is feasible to build a pipeline that starts from a model trained with fixed data and then learns from interactions with humans to improve itself. 
+
+Together, these contributions have created a system that is able to generate more interactive, smart, user-consistent,  
+long-term successful chit-chat system. 
+~\\~\\
+We will conclude this dissertation with a discussion of
+ the challenges that current chit-chat systems still face, and
+suggest some avenues for
+future research. 
+
+
+\paragraph{Larger Context}
+In this thesis, we use a hierarchical LSTM models with attention to capture contexts, where a word-level of LSTM is used to obtain the representation for each context sentence, and
+another level  LSTM combines sentence-level representations into a context vector to represent the entire dialogue history. 
+But
+it is not
+straightforwardly
+ clear
+how much context information this context vector is able to capture, and how well 
+this hierarchical attention model is able to 
+  separate informational 
+wheat from chaff. This incapability might stem from (1) the lack of capacity of current neural network models, where 
+one single context information 
+doesn't  have enough capacity to 
+ encode all context information or (2) the model's incapability of figuring out 
+which context sentence provides more evidence 
+than others
+on what the bot should say next. 
+Tackling these issues is extremely important in real-world applications such as  customer service chatbot development. Think about  the domain of mailing package tracking, 
+in which
+the bot needs to memorize some important information such as a tracking number throughout the conversation. 
+Combining  information extraction methods
+or a slot filling strategy 
+ that extracts 
+important entities in the dialogue history with representation-based neural models has the potential to tackle this problem.
+Intuitively, only a very small fraction of key words in the dialogue history  have significant guidance on what the bot should talk about. Using a key-word based information extraction
+model  that first extracts these keywords and then incorporates them into the context neural model provides more flexibility in leveraging information from larger history context.
+
+\paragraph{Logics and Pragmatics}
+Think about the following two contexts of an ongoing conversation: {\it A: are you going to the party?} {\it B: Sorry, I have an  exam tomorrow}. 
+ From this context, we know that the speaker $B$ is not going to the party because he has to prepare for the upcoming exam, on which 
+ the conversation that follows should be based. This requires a sequence of reasoning steps, namely,
+ {\it having an exam tomorrow} $\rightarrow$ 
+  {\it having to prepare for the exam} $\rightarrow$ {\it being occupied } $\rightarrow$ {\it not able to attend the party}. Straightforward as it seems to humans, 
+  such a line of reasoning is 
+  extremely hard for current machine learning systems, especially in an open-domain: manually labeling all the reasoning chains in an open domain is unrealistically work-demaning. 
+  We thus need a logic deduction model, which automatically learns these implicit reasoning chains from a massive amount of training data and then incorporate them to conversational generation. 
+     
+ \paragraph{Background and Prior Knowledge}
+ Human conversations always take place in a specific context or background. The granularity could be as small/specific as the location that a conversation takes place in (e.g., a cafeteria or a theater), or as large as during  war time vs peaceful time. 
+ This background has
+   a significant impact on how the conversation should go. 
+ The context also includes user information, personal attributes, or even the speaker's general feeling for his dialogue partner. For example whether the addressee is responsible or honest. 
+ Challenges for handing the background issue are two fold: (1) at the training data level, it is hard to collect comprehensive information about the background in which a dialogue takes place. As we discussed in the previous sections, most large-scale available datasets  come from social media like Twitter, online forums like reddit or movie scripts, which usually lack a detailed description of 
+ the background, for example, it is impossible to collect thorough information about the persona of a speaker participating in the Twitter conversation. 
+ One can think of the persona model described in Section \ref{persona} as building up speaker information/profile based on its previous generated conversations. 
+ But only using hundreds or thousands of dialogue turns that a user previously published on Twitter is far from fully knowing them. 
+  (2) the implication that a specific context has for a conversation happening in that context requires a huge amount of prior common-sense knowledge. When we humans converse, these common senses are rarely explicitly mentioned or described since a dialogue participant just takes them for granted. This means that even if we have concrete context information for a conversation, 
+ why the conversation that takes place in this  context as it is is not in the least clear, since a significant amount of common sense information is omitted by the speakers.
+ This poses significant challenges for imitation based machine learning systems (e.g., the \sts model), since without knowing why, purely imitating the way humans talk using the training set is not an optimal way to understand human communications. 
+ 
+I hope that this dissertation can inspire researchers in the direction of dialogue understanding and generation, and encourage ongoing research to 
+tackle the issues described just above. 

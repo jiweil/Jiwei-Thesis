@@ -1,0 +1,663 @@
+In this chapter, we will discuss how a bot can improve in an online fashion from humans' feedback. 
+A good conversational agent 
+ %Sometimes, when the teacher is a human speaking to a bot, we also refer to the human teacher as the user.
+should have the ability to learn from the online feedback from a teacher: adapting its model when making mistakes and reinforcing the model when the teacher's feedback is positive.
+This is particularly important in the situation where the bot is initially trained in a supervised way on a fixed synthetic, domain-specific or pre-built dataset before release, but will be exposed to
+a different environment after release
+ (e.g.,
+ more diverse natural language utterance usage when talking with real humans, different distributions, special cases, etc.).  Most recent research
+has focused on training a bot
+from fixed training sets of labeled data but seldom on how the bot can
+improve through online interaction with humans.
+Human (rather than machine) language learning happens during communication \citep{bassiri2011interactional,werts1995instructive},
+and not from labeled datasets, hence making this an important subject to study.
+
+
+In this chapter, we explore this direction by
+ training a bot through interaction with teachers in an online fashion.
+ The task is formalized under the general framework of reinforcement learning
+via the teacher's (dialogue partner's) feedback to the dialogue actions from the bot.
+ The dialogue takes place in the context of question-answering tasks and the bot has to, given either a short story or a set of facts, answer a set of questions from the teacher.
+We consider two types of feedback: explicit numerical rewards as in conventional
+reinforcement learning, and textual feedback which is more natural in human dialogue.
+We consider two online training scenarios:
+(i) where the task is built with a dialogue simulator allowing for easy analysis and repeatability
+of experiments; and (ii) where the teachers are real humans using Amazon Mechanical Turk.
+% the teacher is  either a dialogue simulator or a real human that
+% will give feedback on the student's answer
+%build a dialogue simulator to be able to
+%The teacher can be either a dialogue simulator or a real human that
+% will give feedback on the student's answer
+%  in various forms such as natural language utterance or explicit reward labels as described in \citep{weston2016dialog}, from which the bot will learn.
+
+    We explore  important issues involved in online learning
+   such as  how a bot can be most efficiently trained using a minimal amount of teacher's feedback,
+ how a bot can harness different types of feedback signal,
+how to avoid pitfalls such as instability during online learing with different types of feedback via
+ data balancing and exploration,
+and how to make learning with real humans feasible via data batching.
+%how a pre-trained bot on fixed supervised data can be generalized to onhuman generated dialogue,
+%and furthermore benefit from training on that data.
+Our findings indicate that
+it is feasible to build a pipeline
+that starts from a model trained with fixed data and then learns from interactions with humans
+to improve itself. %, obtaining accuracy close to a fully supervised dataset.
+
+
+
+
+\section{Dataset and Tasks}
+
+We begin by describing the data setup we use.
+In our first set of experiments we build a simulator as a testbed for learning algorithms.
+In our second set of experiments we use Mechanical Turk to provide real human teachers giving feedback.
+
+%\subsection{Simulator}
+
+\subsection{Simulator}
+
+The simulator adapts two existing fixed datasets to our online setting.
+Following \newcite{weston2016dialog}, we use
+(i) the single supporting fact problem from the bAbI datasets \cite{weston2015towards}
+which consists of 1000 short stories from a simulated world interspersed with questions; and (ii)
+the WikiMovies dataset \cite{weston2015towards} which consists
+ of roughly 100k (templated) questions
+over 75k entities based on questions with answers in the open movie database (OMDb).
+Each dialogue takes place between a teacher, scripted by the simulation, and a bot.
+%, where the teacher is scripted by the simulation.
+%The teacher could either be a template-based simulator or a real human.
+The communication protocol is as follows: (1)
+the teacher first asks a question from the fixed set of questions existing in the dataset, (2)
+the bot answers the question, and finally (3) the teacher gives feedback on the bot's answer.
+
+\subsubsection{Tasks}
+ We follow the paradigm defined in \newcite{weston2016dialog} where the teacher's feedback
+ takes the form of either textual feedback, a numerical reward, or both, depending on the task.
+For each dataset, there are ten tasks:
+\begin{tightitemize}
+\item {\bf   Task 1}: The teacher tells the student exactly what they should have said (supervised baseline).
+\item {\bf  Task 2}:
+The teacher replies with positive textual feedback and reward, or negative textual feedback. 
+\item {\bf Task 3}: The teacher gives textual feedback containing the answer when the bot is wrong.
+\item {\bf Task 4}: The teacher provides a hint by providing the class of the correct answer, e.g., ``No it's a movie" for the question ``which movie did Forest Gump star in?".
+\item {\bf Task 5}: The teacher provides
+a reason why the student's answer is wrong by pointing out the relevant supporting fact from the knowledge base.
+\item {\bf Task 6}: The teacher gives positive reward only 50\% of the time. 
+\item {\bf Task 7}: Rewards are missing and the teacher only gives natural language feedback.
+\item {\bf Task 8}: Combines Tasks 1 and 2 to see whether a learner can learn successfully from both forms of supervision at once.
+\item {\bf Task 9}:  The bot asks questions of the teacher about what it has done wrong.
+\item {\bf Task 10}:  The bot will receive a hint rather than the correct answer after asking for help.
+\end{tightitemize}
+\begin{figure*}[!ht]
+\centering
+\footnotesize
+\begin{tabular}{|l|l|l|}
+\cline{1-1}\cline{3-3}
+ \\[-2ex]
+{\color{blue}T : Which  {\color{blue} movie} did Tom Hanks {\color{blue} star} in ?} &&{\color{blue}T : Which  {\color{blue}movie} did Tom Hanks  {\color{blue}star} in ?}  \\
+{\color{red}S : Forrest Gump }  &&  {\color{red}S :  Brad Pitt.}\\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 1: Imitating an Expert Student &&Task 1: Imitating an Expert Student  \\
+{\color{blue}S: Forrest Gump} && {\color{blue}S: Forrest Gump}\\
+{\color{blue}T: (no response)  } &&{\color{blue}T: (no response)  }  \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 2: Positive and Negative Feedback &&Task 2: Positive and Negative Feedback  \\
+{\color{blue}T: Yes, that's right! (+)} && {\color{blue}T: No, that's incorrect! \MINUS} \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 3: Answers Supplied by Teacher &&Task 3: Answers Supplied by Teacher  \\
+{\color{blue}T: Yes, that is correct. (+)} && {\color{blue}T: No, the answer is Forrest Gump ! \MINUS} \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 4: Hints Supplied by Teacher &&Task 4: Hints Supplied by Teacher  \\
+{\color{blue}T: Correct! (+)} && {\color{blue}T: No, it's a movie ! \MINUS} \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 5: Supporting Facts Supplied by Teacher &&Task 5: Supporting Facts Supplied by Teacher  \\
+{\color{blue}T: That's right. (+)} && {\color{blue}T: No, because Forrest Gump starred actors } \\
+&&{\color{blue} Tom Hanks, Robin Wright, Gary Sinise ! \MINUS} \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 6: Partial Feedback && Task 6: Partial Feedback \\
+if random(0,1)$<$0.5 then  && {\color{blue}T: Sorry, wrong. \MINUS} \\%  if random(0,1)$<$0.5 then  \\
+~~~~{\color{blue}T: That's correct. (+)} && \\%~~~~ {\color{blue}T: No, that's incorrect! \MINUS} \\
+else ~{\color{blue}T: That's correct.  } && \\%else ~{\color{blue}T: No, that's incorrect! } \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 7: No Feedback  && Task 7: No Feedback \\
+{\color{blue}T: Yes.} && {\color{blue}T: No.} \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 8: Imitation and Feedback Mixture &&Task 8: Imitation and Feedback Mixture \\
+if random(0,1)$<$0.5 then  && if random(0,1)$<$0.5 then  \\
+~~~~{\color{blue}T: Yes, that's right! (+)} &&~~~~ {\color{blue}T: Wrong. \MINUS} \\
+else ~{\color{blue}T: (no response)  } && else ~{\color{blue} S: Forrest Gump  } \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 9: Asking For Corrections &&Task 9: Asking For Corrections  \\
+{\color{blue}T: Correct! (+)}  &&  {\color{blue}T: No, that's wrong. } \\
+&& {\color{red}S: Can you help me? } \\
+&& {\color{blue}T: Forrest Gump !} \\
+\cline{1-1}\cline{3-3}
+ \multicolumn{1}{c}{}
+\vspace{-2mm} \\
+\cline{1-1}\cline{3-3}
+Task 10: Asking For Supporting Facts && Task 10: Asking For Supporting Facts\\
+{\color{blue}T: Yes, that's right! (+)}  &&  {\color{blue}T: Sorry, that's not it.} \\
+&& {\color{red}S: Can you help me? } \\
+&& {\color{blue}T: A relevant fact is that
+Forrest Gump starred actors } \\
+&&{\color{blue} Tom Hanks, Robin Wright, Gary Sinise ! \MINUS} \\\hline
+
+\end{tabular}
+\caption[The ten tasks the simulator implements.]{The ten tasks our simulator implements, which evaluate different
+forms of teacher response and binary feedback.
+In each case the same example from WikiMovies is given for simplicity,
+where the student answered correctly for all tasks (left) or incorrectly (right).
+ {\color{red}Red} text denotes responses by the bot with  {\color{red}S} denoting the bot.
+{\color{blue}Blue} text is spoken by the teacher with {\color{blue}T} denoting the teacher's response. For imitation learning the teacher provides the response the student should say denoted with {\color{blue}S} in Tasks 1 and 8.
+A {(\color{blue}{+})} denotes a positive reward.
+}
+\label{Tasks}
+\end{figure*}
+
+
+
+
+Here, we only consider %Tasks 3 (`answers supplied by teacher')
+ Task 6 (``partial feedback''): % from \cite{weston2016dialog}:
+the teacher replies with positive textual feedback (6 possible templates) when the bot answers correctly, and positive reward is given only 50\% of the time.
+When the bot is wrong, the teacher gives textual feedback containing the answer.
+Example dialogues are given in Figure \ref{fig:simulator-examples}.
+
+
+\definecolor{dred}{rgb}{0.7,0.0,0.0}
+\newcommand{\PLUS}{{\textcolor{blue}{(+)}}}
+\newcommand{\SPACE}{~~~~~~~~~~~~~~~~~~~~~~}
+\begin{figure*}[h]
+\begin{small}
+% see Section \ref{sec:tasks}) for more details. Note that  $\PLUS$
+%indicates positive reward.
+%\vspace{2mm}
+\begin{tabular}{|l|c|l|}
+\cline{1-1}\cline{3-3}
+&& \\[-2ex]
+{\bf bAbI Task 6: Partial Rewards} &&
+{\bf WikiMovies Task 6: Partial Rewards}  \\
+&& \\[-2ex]
+Mary went to the hallway.         &&
+What films are about Hawaii? \SPACE \textcolor{dred}{50 First Dates}\\
+%Ruggero Raimondi appears in which movies?     \textcolor{dred}{Billy Madison}\\
+John moved to the bathroom.    &&
+Correct! \\  %\PLUS \\
+%No, that's wrong.             \\
+Mary travelled to the kitchen.     &&
+Who acted in Licence to Kill? \SPACE \textcolor{dred}{Billy Madison}\\
+%Can you name a film directed by Stuart Ortiz? \textcolor{dred}{Grave Encounters}\\
+Where is Mary? \SPACE~ \textcolor{dred}{kitchen} &&
+No, the answer is Timothy Dalton.\\
+Yes, that's right! &&
+%What genre is Clockers in?     \textcolor{dred}{Thriller}\\
+%What genre does The Magic Sword fall under?   \textcolor{dred}{Thriller}\\
+What genre is Saratoga Trunk in?  \SPACE    \textcolor{dred}{Drama}\\
+%What is the genre of the film Dial M for Murder?   \textcolor{dred}{Thriller} \\
+Where is John? \SPACE~~ \textcolor{dred}{bathroom}  &&
+Yes! \PLUS \\
+Yes, that's correct!  \PLUS   &&  ~~~~~~\dots  \\
+%~~What language is Whity in?     \textcolor{dred}{German}\\
+%~~Yes, that is correct!         \PLUS \\
+\cline{1-1}\cline{3-3}
+\end{tabular}
+\end{small}
+%\vspace*{-3ex}
+\caption[Simulator sample dialogues for the bAbI task and WikiMovies.]{Simulator sample dialogues for the bAbI task (left) and WikiMovies (right).
+We consider 10 different tasks following \cite{weston2016dialog}.
+% in the main
+%text of the paper; 
+The teacher's dialogue is in black and the bot is in red.
+$\PLUS$ indicates receiving positive reward, given only 50\% of the time even when correct.
+\label{fig:simulator-examples}
+}
+\end{figure*}
+
+
+
+
+\begin{figure*}[!ht]
+\center
+\begin{small}
+%\begin{tabular}{|l|c|l|}
+\begin{tabular}{|l|}
+\hline
+{\bf Sample dialogues with correct answers from the bot:}\\
+Who wrote the Linguini Incident ?     \SPACE~~~~~~~~~~~~~~~~~~~ \textcolor{dred}{richard shepard}\\
+Richard Shepard is one of the right answers here.\\
+What year did The World Before Her premiere? \SPACE \textcolor{dred}{2012}\\
+Yep! That's when it came out.  \\
+Which are the movie genres of Mystery of the 13th Guest?  ~~~ \textcolor{dred}{crime}\\
+\vspace{1mm}
+Right, it can also be categorized as a mystery.\\
+{\bf Sample dialogues with incorrect answers from the bot:}\\
+What are some movies about a supermarket ?    \SPACE~~~ \textcolor{dred}{supermarket} \\
+There were many options and this one was not among them.  \\
+Which are the genres of the film Juwanna Mann ? ~~~~~~~~~~~~~~~~~~~ \textcolor{dred}{kevin pollak} \\
+That is incorrect. Remember the question asked for a genre not name. \\
+Who wrote the story of movie Coraline ?    \SPACE~~~~~~~~~~~~\textcolor{dred}{fantasy} \\
+That's a movie genre and not the name of the writer. A better answer would of been Henry Selick\\
+ or Neil Gaiman.\\
+\hline
+\end{tabular}
+\end{small}
+\caption[Human Dialogue from Mechanical Turk]{Human Dialogue from Mechanical Turk (based on WikiMovies)
+The human teacher's dialogue is in black and the bot is in red.
+We show examples where the bot answers correctly (left) and incorrectly (right).
+Real humans provide more variability of language in both questions and textual feedback
+than in the simulator setup (cf. Figure \ref{fig:simulator-examples}).
+ \label{fig:mturk_data}}
+\end{figure*}
+
+\begin{figure}[!ht]
+
+Title: Write brief responses to given dialogue exchanges (about 15 min)\\
+
+Description: Write a brief response to a student's answer to a teacher's question, providing feedback to the student on their answer.
+
+Instructions:\\
+
+Each task consists of the following triplets:
+\begin{enumerate}
+\item a question by the teacher
+
+\item the correct answer(s) to the question (separated by ``OR'')
+
+\item a proposed answer in reply to the question from the student
+
+\end{enumerate}
+
+Consider the scenario where you are the teacher and have already asked the question, and received the reply from the student. Please compose a brief response giving feedback to the student about their answer. The correct answers are provided so that you know whether the student was correct or not.
+
+For example, given 1) question: ``what is a color in the united states flag?''; 2) correct answer: ``white, blue, red''; 3) student reply: ``red'', your response could be something like ``that's right!''; for 3) reply: ``green'', you might say ``no that's not right'' or ``nope, a correct answer is actually white''.
+
+Please vary responses and try to minimize spelling mistakes. If the same responses are copied/pasted or overused, we'll reject the HIT.
+
+Avoid naming the student or addressing ``the class'' directly.
+
+We will consider bonuses for higher quality responses during review.
+\caption{Instructions Given to Turkers}
+\label{insTurk}
+\end{figure}
+
+
+\subsection{Mechanical Turk Experiments} \label{sec:data-mturk}
+
+We also extended WikiMovies using Mechanical
+Turk so that real human teachers are  giving feedback rather than using a simulation.
+As both the questions and feedback are templated in the simulation, they are now both
+replaced with natural human utterances. Rather than having a set of simulated tasks, we have
+only one task, and we gave instructions to the teachers that they could give feedback
+as they see fit. The exact instructions given to the Turkers is given in Figure \ref{insTurk}.
+In general, each independent response  contains feedback like
+(i) positive or negative sentences; or (ii) a phrase containing the answer
+or (iii) a hint,  which are similar to setups defined in the simulator. However,
+ some human responses cannot be so easily categorized,
+and the lexical variability is much larger in human responses.
+Some examples of the collected data are given in Figure~\ref{fig:mturk_data}.
+
+
+\section{Methods}
+\subsection{Reinforcement Learning} \label{sec:rl} % Algorithms}
+In this section, we present the algorithms we used to train MemN2N in an online fashion.
+Our learning setup can be cast as a particular form of Reinforcement Learning. 
+The policy is implemented by the MemN2N model. 
+The state is the dialogue history. %deterministic and it is set by the simulator.
+The action space
+corresponds to the set of answers the MemN2N has to choose from to answer the teacher's
+ question. In our setting, the policy chooses only one action for each episode.
+The reward is either $1$ (a reward from the teacher when the bot answers correctly) 
+ or $0$ otherwise.
+Note that in our experiments, a reward equal to $0$ might mean that the answer is incorrect or
+that the positive reward is simply missing.
+The overall setup is closest to standard contextual bandits, except that the reward is binary.
+
+
+When working with real human dialogues, e.g., collecting data via Mechanical Turk,
+it is easier to set up a task whereby a bot is deployed to respond to a large batch of utterances,
+as opposed to a single one.
+The latter would be more difficult to manage and scale up since it would require some
+form of synchronization between the model replicas interacting with each human.
+
+This is comparable to the real world situation where a teacher can either ask a student a single question and give feedback right away,
+or set up a test that contains many questions and grade all of them at once. Only after the learner completes all questions, it can hear
+feedback from the teacher.
+
+We use {\it batch size} to refer to how many dialogue
+episodes the current model is used to collect feedback before updating its parameters.
+In the Reinforcement Learning literature, batch size is related to {\em off-policy}
+learning since the MemN2N policy is trained
+using episodes collected with a stale version of the model. Our experiments show
+that our model and base algorithms are very robust to the choice
+of batch size, alleviating the need for correction terms in the learning algorithm~\citep{bottou-13}.
+
+We consider two strategies: (i) online batch size, whereby the target policy is
+updated after doing a single pass over each batch (a batch size of 1 reverts to
+the usual on-policy online learning); and (ii) dataset-sized batch, whereby
+training is continued to convergence on the batch which is the size of the dataset,
+and then the target policy is updated with the new model, and a new batch is drawn and the procedure iterates.
+These strategies can be applied to all the methods we use, described below.
+%
+%There are two extreme choices of batch size: (i) batch size equal to 1 which reverts to the usual on-policy online learning, and (ii) batch size equal to the maximum allowed size, which is the size of the training set.
+% The latter setup
+%is most similar to~\cite{weston2016dialog}, except that in our case after training on the training set we regenerate the data using the trained model, and we repeat the process.
+
+
+
+
+Next, we discuss the learning algorithms we considered in this work.
+%We now discuss the learning algorithms we considered in this work.
+
+\subsubsection{Reward-Based Imitation (RBI)}
+The simplest algorithm we first consider is the one employed in \newcite{weston2016dialog}.
+RBI relies on positive rewards provided by the teacher.
+It is trained to imitate the correct behavior of the learner, i.e.,
+learning to predict the correct answers (with reward 1) at training time and disregarding the other ones.
+This is implemented by using a {MemN2N} that maps a dialogue input to a prediction, i.e. 
+using the cross entropy criterion on the positively rewarded subset of the data.
+
+In order to make this work in the online setting which requires exploration to find the correct answer,
+we employ an $\epsilon$-greedy strategy:
+the learner makes a prediction using its own model (the answer assigned the highest probability)
+ with probability $1-\epsilon$, otherwise it picks a random answer with probability $\epsilon$.
+The teacher will then give a reward of $+1$ if the answer is correct, otherwise $0$.
+The bot will then learn to imitate the correct answers:
+predicting the correct answers while ignoring the incorrect ones.
+
+
+\subsubsection{REINFORCE}
+The second algorithm we use is the REINFORCE algorithm \citep{williams1992simple},
+which maximizes the expected cumulative reward of the episode, in our case the expected reward provided by the teacher.
+The expectation is approximated by sampling an answer from the model distribution.
+Let $a$ denote the answer that the learner gives,
+$p(a)$ denote the probability that current model assigns to $a$,
+$r$ denote the teacher's reward, and $J(\theta)$ denote the expectation of the reward. We have:
+\begin{equation}
+\nabla J(\theta)\approx\nabla\log p(a) [r-b]
+\end{equation}
+where $b$ is the baseline value, which is estimated using a linear regression model
+that takes as input the output of the memory network after the last hop,
+and outputs a scalar $b$ denoting the estimation of the future reward.
+The baseline model is trained by minimizing the mean squared loss between the estimated reward $b$ and actual reward $r$, $||r-b||^2$.
+We refer the readers to \newcite{zaremba2015reinforcement} for more details.
+The baseline estimator model is independent from the policy model, and its error is not backpropagated through the policy model.
+
+The major difference between RBI and REINFORCE is that (i) the learner only tries to imitate correct behavior in RBI while in REINFORCE it also leverages the incorrect behavior,
+and (ii) the learner explores using an $\epsilon$-greedy strategy in RBI while in REINFORCE it uses the distribution over actions produced by the model itself.
+
+
+\subsubsection{Forward Prediction (FP)}
+FP \citep{weston2016dialog} handles the situation where a numerical reward for a bot's answer is not available, meaning that there are no +1 or 0 labels available after a student's utterance.
+Instead, the model assumes
+ the teacher gives  textual feedback $t$ to the bot's answer, taking the form of a dialogue utterance,
+and the model tries to predict this instead.
+Suppose that $x$ denotes the teacher's question and $C$=$c_1$, $c_2$, ..., $c_N$ denotes the dialogue history as before.
+In {\it FP}, the model first maps the teacher's initial question $x$ and dialogue history $C$ to
+a vector representation $u$ using a memory network with multiple hops.
+Then the model will perform another hop of attention over all possible student's answers  in $\mathbb{A}$, 
+with an additional part that incorporates the information
+of which candidate (i.e., $a$) was actually selected in the dialogue:
+\begin{equation}
+p_{\hat{a}}=\softmax(u^T y_{\hat{a}})~~~~~o=\sum_{\hat{a}\in \mathbb{A}} p_{\hat{a}} (y_{\hat{a}}+\beta\cdot {\bf 1}[\hat{a}=a] )
+\end{equation}
+where $y_{\hat{a}}$ denotes the vector representation for the student's  answer candidate $\hat{a}$.
+$\beta$ is a (learned) d-dimensional vector to signify the actual action $a$ that the student chooses.
+$o$ is then combined with $u$ to predict the teacher's feedback $t$ using a softmax:
+\begin{equation}
+u_1=o+u ~~~~
+t=\softmax (u_1^T x_{r_1}, u_1^T x_{r_2}, ..., u_1^T x_{r_N})
+\end{equation}
+where $x_{r_{i}}$ denotes the embedding for the $i^{th}$ response.
+In the online setting, the teacher will give textual feedback,
+and the learner needs to update its model using the feedback.
+It was shown in \newcite{weston2016dialog} that in an off-line setting this procedure can work either on its own, or in conjunction with a method that uses numerical rewards as well for improved performance.
+In the online setting,  we consider two simple extensions:
+\begin{itemize}
+\item $\epsilon$-greedy exploration:  with probability $\epsilon$
+the student will give a random answer, and with probability $1-\epsilon$ it
+will give the answer that its model assigns the largest probability. This method enables the model to explore the space of actions and to potentially discover correct answers.
+\item data balancing: cluster the set of teacher responses $t$ and then balance training across the clusters equally.\footnote{In the simulated data, because the responses are templates, this can be implemented by first randomly sampling the response, and then randomly sampling a story with that response; we keep the history of all stories seen from which we sample. For real data slightly more sophisticated clustering should be used.}
+This is a type of experience replay \citep{mnih2013playing} but sampling with an evened distribution.
+Balancing stops part of the distribution dominating the learning.
+For example, if the  model is not exposed to sufficient positive and negative feedback,
+and one class overly dominates, the learning process degenerates
+to a model that always predicts the same output regardless of its input.
+
+
+ %stop part of the distribution dominating the learning
+\end{itemize}
+
+
+%\subsubsection{Batch Size}
+
+
+
+\section{Experiments}
+
+Experiments are first conducted using our simulator, and then
+using Amazon Mechanical Turk with real human subjects taking the role of the teacher.\footnote{
+Code and data are available at
+\tiny{\url{https://github.com/facebook/MemNN/tree/master/HITL}}.
+}
+
+\begin{figure*}[!ht]
+\includegraphics[width=2.5in]{img/RBI_eps6.pdf}
+\includegraphics[width=2.5in]{img/FP_eps6.pdf}\\
+\includegraphics[width=2.5in]{img/FP_eps_balance6.pdf}
+\includegraphics[width=2.5in]{img/RBIvsRF6.pdf}\\
+\includegraphics[width=2.5in]{img/RBIbatch6.pdf}
+\includegraphics[width=2.5in]{img/FPbatch6.pdf}\\
+\caption[Training epoch vs.\ test accuracy for bAbI (Task 6) varying exploration $\epsilon$ and batch size.]{  Training epoch vs.\ test accuracy for bAbI (Task 6) varying exploration $\epsilon$ and batch size.
+Random exploration is important for both reward-based (RBI) and forward prediction (FP).
+Performance is largely independent of batch size, and
+RBI performs similarly to REINFORCE. 
+Note that supervised, rather than reinforcement learning, with gold standard labels
+achieves 100\% accuracy on this task.
+\label{fig:online-babi-task6}
+}
+\end{figure*}
+
+\subsection{Simulator}
+
+
+\paragraph{Online Experiments} \label{sec:online_exp}
+
+
+In our first experiments, we considered both the bAbI and WikiMovies tasks
+and varied batch size, random exploration rate $\epsilon$, and type of model.
+Figure~\ref{fig:online-babi-task6} and Figure~\ref{fig:online-movieqa-task6}
+shows (Task 6) results on bAbI and WikiMovies.
+%Finally, RBI, FP, and REINFORCE are compared in figure~\ref{fig:online-comparison-rbi-fp-rf}.
+
+Overall, we obtain the following conclusions:
+\begin{itemize}
+\item In general RBI and FP do work in a reinforcement learning setting, but can perform better with random exploration.
+\item In particular RBI can fail without exploration. RBI needs random noise for exploring labels otherwise it can get stuck predicting a subset of labels and fail.
+\item REINFORCE obtains similar performance to RBI with optimal $\epsilon$. %, see figure~\ref{fig:online-comparison-rbi-fp-rf}.
+\item FP with balancing or with exploration via $\epsilon$ both outperform FP alone.
+\item For both RBI and FP, performance is largely independent of online batch size.
+\end{itemize}
+
+
+\begin{figure*}[!t]
+\center
+\includegraphics[width=2.35in]{img/RBI6.pdf}
+\includegraphics[width=2.35in]{img/FP6.pdf}\\
+\includegraphics[width=2.35in]{img/batch_RBI_task6.pdf}
+%\includegraphics[width=2.15in]{figs/batch_FP_task3.pdf}\\
+\includegraphics[width=2.35in]{img/comparison6.pdf}\\
+\caption[Training epoch vs.\ test accuracy on Task $6$ varying exploration rate $\epsilon$]{ WikiMovies: Training epoch vs.\ test accuracy on Task $6$ varying (top left panel) exploration rate $\epsilon$ while setting batch size to $32$ for RBI,
+(top right panel) for FP,
+(bottom left) batch size for RBI, and (bottom right) comparing RBI, REINFORCE, and FP
+  with $\epsilon=0.5$. %Exploration rate  $\epsilon=0.5$ yields fastest convergence, while
+The model is robust to the choice of batch size. RBI and REINFORCE perform comparably.
+Note that supervised, rather than reinforcement learning, with gold standard labels
+achieves 80\% accuracy on this task \citep{weston2016dialog}.
+\label{fig:online-movieqa-task6}
+}
+\end{figure*}
+
+\if 0
+\begin{figure*}[!htb]
+\includegraphics[width=2.5in]{img/RBIvsRF6.pdf}
+\includegraphics[width=2.5in]{img/comparison_eps_REINFORCE_2hops.pdf}
+\caption[Comparison between RBI, FP, and REINFORCE on both bAbI and WikiMovies datasets.]{Comparison between RBI, FP, and REINFORCE on both (left panel) bAbI and (right panel) WikiMovies datasets.
+Models perform comparably.
+\label{fig:online-comparison-rbi-fp-rf}
+}
+\end{figure*}
+\fi
+
+\paragraph{Dataset Batch Size Experiments}
+Given that larger online batch sizes appear to work well, and that this could be important in
+a real-world data collection setup where the same model is deployed to gather a large amount
+ of feedback from humans,
+we conducted further experiments where the batch size is exactly equal to the dataset size
+ and for each batch training is completed to convergence.
+After the model has been trained on the dataset,
+it is deployed to collect a new dataset of questions and answers, and the process is repeated.
+Table~\ref{table:dataset-batch-babi} reports test error at each iteration of training,
+using the bAbI Task $6$ as the case study.
+The following conclusions can be made for this setting:
+\begin{itemize}
+\item RBI improves in performance as we iterate. Unlike in the online case,
+RBI does not need random exploration.
+We believe this is because the first batch, which is collected with a randomly initialized model,
+contains enough variety of examples with positive rewards
+ that the model does not get stuck predicting a subset of labels.
+% because the action space (set of candidate answers)
+% is rather small on this dataset and there is a sufficient number of questions
+%that are correctly answered even using a random model.
+%Therefore, the model can be trained just on the positive examples in supervised way, without getting stuck at predicting a subset of the labels.
+\item FP is not stable in this setting. %, % whereas it was in earlier online experiments.
+This is because once the model gets very good
+at making predictions (at the third iteration), it is not exposed to a sufficient number of
+negative responses anymore.
+From that point on, learning degenerates and performance drops as the model always predicts the same responses.
+At the next iteration, it will recover again since it has a more balanced training set,
+but then it will collapse again in an oscillating behavior.
+\item FP does work if extended with balancing or random exploration with sufficiently large $\epsilon$.
+\item RBI+FP also works well and helps with the instability of FP, alleviating the need for random exploration and data balancing.
+\end{itemize}
+
+Overall, our simulation
+ results indicate that while a bot can be effectively trained fully online from bot-teacher interactions,
+collecting real dialogue data in batches (which is easier to collect and iterate experiments over) is also a viable approach. We hence pursue the latter approach in our next set of experiments.
+
+%Overall, the results suggest
+%that collecting real dialogue data in batches (which is easier to collect and iterate experiments over) is a viable approach.
+
+
+\begin{table*}[!tbh]
+\center
+\begin{tabular}{lccccccc}\toprule
+Iteration  &     1     & 2     & 3     & 4     & 5     & 6 \\
+\midrule
+Imitation Learning               & 0.24  & 0.23  & 0.23 & 0.22 & 0.23 & 0.23 \\
+Reward Based Imitation (RBI)     & 0.74  & 0.87  & 0.90 & {\bf 0.96} & {\bf 0.96} & {\bf 0.98}  \\
+%REINFORCE                         & -  & ?     & ?    & ?                & ?          & ?           \\
+Forward Pred. (FP)               & {\bf 0.99}  & {\bf 0.96}  & {\bf 1.00} & 0.30 & {\bf 1.00} & 0.29  \\
+RBI+FP                           & {\bf 0.99}  & {\bf 0.96}  &  {\bf 0.97} & {\bf 0.95} & 0.94 & {\bf 0.97} \\
+%FP (all previous training set) & - & {\bf 0.99} & {\bf 0.97} & 0.77 & 0.92 & 0.42 & 0.70 \\
+FP (balanced)                    & {\bf 0.99} & {\bf 0.97} & {\bf 0.97} & {\bf 0.97} & {\bf 0.97} & {\bf 0.97} \\
+FP (rand.\ exploration $\epsilon=0.25$)                & {\bf {\bf 0.96}} & 0.88 & 0.94 & 0.26 & 0.64 & {\bf 0.99} \\
+FP (rand.\ exploration $\epsilon=0.5$)                 & {\bf 0.98} & {\bf 0.98} & {\bf 0.99} & {\bf 0.98} & {\bf 0.95} & {\bf 0.99} \\\bottomrule
+\end{tabular}
+\caption[Test accuracy of various models per iteration in the dataset batch size case]{Test accuracy of various models per iteration in the dataset batch size case
+(using batch size equal to the size of the full training set) for bAbI, Task $6$.
+ Results $>0.95$ are in bold.
+\label{table:dataset-batch-babi}
+}
+\end{table*}
+
+
+\subsection{Human Feedback} \label{sec:mturkexp}
+We employed Turkers to both ask questions and then give textual feedback
+on the bot's answers, as described in Section \ref{sec:data-mturk}.
+Our experimental protocol was as follows.
+We first trained a MemN2N using supervised (i.e., imitation) learning on a training 
+set of 1000 questions produced by Turkers and using the known correct answers 
+provided by the original dataset (and no textual feedback).
+Next, using the trained policy, we collected textual feedback for the responses
+of the bot for an additional 10,000 questions.
+Examples from the collected dataset are given in Figure \ref{fig:mturk_data}.
+Given this dataset, we compare various models: RBI, FP, and FP+RBI.
+As we know the correct answers to the additional questions, we can  assign a positive reward
+to questions the bot got correct. We hence measure the impact of the sparseness of this
+reward signal, where a fraction $r$ of additional examples have rewards.
+%RBI can use the original 1000 labeled examples plus the additional data that has rewards,
+%FP can only use the data with textual feedback.
+The models are tested on a test set of $\sim$8,000 questions (produced by Turkers),
+and hyperparameters are tuned on a similarly sized validation set.
+Note this is a harder task than the WikiMovies task in the simulator due to 
+the use natural language from Turkers, hence lower test performance is expected.
+
+Results are given in Table \ref{table:mturk-res}.
+They indicate that both RBI and FP are useful.
+When rewards are sparse, FP still works via the textual feedback 
+while RBI can only use the initial 1000 examples when $r=0$.
+As FP does not use numericalrewards at all, it is invariant to the parameter $r$.
+The combination of FP and RBI outperforms either alone.
+
+
+\begin{table*}[!tbh]
+\begin{center}
+\begin{tabular}{lcccc}\toprule
+Model                         & $r=0$   &  $r=0.1$  &  $r=0.5$  & $r=1$ \\\midrule
+Reward Based Imitation (RBI)  & 0.333    &  0.340   &  0.365   & 0.375 \\
+Forward Prediction (FP)       & 0.358    &  0.358   &  0.358   & 0.358 \\
+RBI+FP                        & 0.431    &  0.438   &  0.443   & 0.441 \\\bottomrule
+\end{tabular}
+\end{center}
+\caption[Incorporating feedback from humans via Mechanical Turk.]{
+Textual feedback is provided for 10,000 model predictions (from a model trained with 1k labeled
+ training examples), and additional sparse
+binary rewards (fraction $r$ of examples have rewards).
+Forward Prediction
+and Reward-based Imitation are both useful, with their combination performing best.
+\label{table:mturk-res}
+}
+\end{table*}
+
+
+
+\section{Conclusion}
+
+
+
+We studied dialogue learning of end-to-end models using textual feedback and numerical rewards.
+Both fully online and iterative batch settings are viable approaches to policy learning, as long as
+possible instabilities in the learning algorithms are taken into account. Secondly, we showed 
+for the first time that the  FP method can work
+in both an online setting and on real human feedback.
+% using balancing or exploration techniques.
+Overall, our results indicate that it is feasible to build a practical
+ pipeline that starts with a model trained on an initial fixed dataset,
+which then learns from interactions with humans  in a (semi-)online fashion to improve itself.

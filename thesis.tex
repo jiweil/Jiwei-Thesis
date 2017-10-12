@@ -1,0 +1,136 @@
+\documentclass[12pt]{report}
+\usepackage{suthesis}
+%\documentstyle[12pt,suthesis]{report}
+
+% -- Imports --
+% (general libraries)
+\usepackage{times,latexsym,amsfonts,amssymb,amsmath,graphicx,url,bbm,rotating}
+\usepackage{enumitem,multirow,hhline,stmaryrd,bussproofs,mathtools,siunitx,arydshln}
+\usepackage{booktabs,xcolor,csquotes,calligra}
+
+% (custom libraries)
+\usepackage{fitch}
+\usepackage{amsmath}
+
+% (inline references)
+\usepackage{natbib}
+% (tikz)
+\usepackage{tikz}
+\usepackage{tikz-dependency,pifont}
+\usetikzlibrary{shapes.arrows,chains,positioning,automata,trees,calc}
+\usetikzlibrary{patterns,matrix}
+\usetikzlibrary{decorations.pathmorphing,decorations.markings}
+% (print algorithms)
+\usepackage[ruled,lined,linesnumbered]{algorithm2e}
+% (custom)
+\input std-macros.tex
+\input macros.tex	
+% (paper compilation hacks)
+\def\newcite#1{\citet{#1}}
+\def\cite#1{\citep{#1}}
+%\def\newcite#1{\textcite{#1}}
+%\def\cite#1{\autocite{#1}}
+\definecolor{darkblue}{rgb}{0.0,0.0,0.4}
+
+% Common hyphenations
+\hyphenation{Text-Runner}
+\hyphenation{Verb-Ocean}
+
+\newenvironment{tightitemize}%
+  {\begin{itemize}[topsep=0pt, partopsep=0pt] %
+    \setlength{\parskip}{0pt}%
+    }%
+  {\end{itemize}}
+
+%\bibliographystyle{plainnat}
+
+ \usepackage{epigraph}
+\renewcommand{\epigraphsize}{\normalsize}
+\setlength{\epigraphwidth}{0.8\textwidth}
+
+\newcommand{\bleu}{{{\sc Bleu}}\xspace}
+\newcommand{\meteor}{{{\sc Meteor}}\xspace}
+\newcommand{\camready}[1]{{{#1}}}
+\newcommand{\eos}{{\it EOS}\xspace}
+\newcommand{\sts}{{{\textsc{Seq2Seq}}}\xspace}
+\newcommand{\dbleu}{{$\Delta${\sc Bleu}}\xspace}
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+\newcommand{\MINUS}{}
+\DeclareMathOperator{\softmax}{softmax}
+\newcommand{\mmiBD}{{MMI-bidi}\xspace}
+\newcommand{\mmiLM}{{MMI-antiLM}\xspace}
+
+\usepackage{tabularx}
+\usepackage{tabulary}
+\usepackage{comment}
+\usepackage{booktabs}
+
+
+\newcommand{\mmiBDv}{{$(1-\lambda) \log p(y|s)+\lambda \log p(x|y)$}\xspace}
+\newcommand{\mmiLMv}{{$\log p(y|x)-\lambda U(y)$}\xspace}
+\newcommand{\Message}{{{\it message}}\xspace}
+\newcommand{\Response}{{{\it response}}\xspace}
+\newcommand{\ststab}{{{\it \sts}}\xspace}
+\newcommand{\User}[1]{{{\it user{#1}}}\xspace}
+
+
+% -- Document --
+\begin{document}
+
+% Title
+\title{Teaching Machines to Converse}
+\author{Jiwei Li}
+\principaladviser{Dan Jurafsky}
+\firstreader{Christopher G. Potts}
+\secondreader{Emma Brunskill}
+
+% Preface
+\beforepreface
+\input preface.tex
+\input ack.tex
+\afterpreface
+
+\chapter{Introduction}
+\label{intro}
+\input{chapters/intro}
+\chapter{Background}
+\label{back}
+\input{chapters/background}
+% -- Sections --
+% Introduction
+% Bibliography
+\chapter{Mutual Information to Avoid Generic Responses}
+\label{mutual}
+\input{chapters/MMI}
+\chapter{Addressing the Speaker Consistency Issue}
+\label{persona}
+\input{chapters/Persona}
+
+\chapter{Fostering Long-term Dialogue Success}
+\label{RL}
+\input{chapters/RL}
+
+
+\chapter{Adversarial Learning for Dialogue Generation}
+\label{adversarial}
+\input{chapters/adversarial}
+
+
+\chapter{Learning by  Asking Questions}
+\label{AQ}
+\input{chapters/AQ}
+
+\chapter{Dialogue Learning with Human-in-the-Loop}
+\label{HITL}
+\input{chapters/HITL}
+
+\chapter{Conclusion and Future Work}
+\label{conclusion}
+\input{chapters/conclusion}
+
+
+\bibliographystyle{acl}
+\bibliography{ref}
+
+\end{document}

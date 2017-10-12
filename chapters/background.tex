@@ -1,0 +1,337 @@
+In this chapter, we will detail background knowledge on three topics,
+namely, \sts models, memory networks, and policy gradient methods of reinforcement learning. 
+
+\section{Sequence-to-Sequence Generation}
+\sts models can be viewed as a basic framework for generating a target sentence based on source inputs, which can be adapted to 
+a variety of natural language generation tasks,
+for example, 
+generating a French sentence given an English sentence in machine translation; 
+generating a response given a source message in response generation;
+generating an answer given a question in question-answering;
+generating a short summary given a document in summarization, etc.  
+
+We will first go through the basics of language models, recurrent neural networks, and the Long Short-term Memory, which 
+can be viewed as the fundamental components of \sts models. Then we will detail the basic structure of a \sts model. Finally, we will talk about  
+ algorithmic  variations of \sts models, such as attention mechanism. 
+\subsection{Language Modeling}
+Language modeling is a task of predicting which word comes next given the preceding words, which 
+an important concept in natural language processing. 
+The concept of language modeling can be dated back to the epoch-making work \cite{shannon1951prediction} of Claude Shannon, 
+who considered the case
+in which a string of input symbols is considered
+one by one, and the uncertainty of the next is measured
+by counting how difficult it is to guess.\footnote{In the original experiment conducted in \cite{shannon1951prediction}, it is letters, rather than words, that were predicted. } 
+More formally, language modeling defines the probability of a sequence (of words)
+by individually predicting each word within the sequence given all the preceding words (or history): 
+$y=y_1, y_2,...., y_N$, where
+  $y_t$ denotes the word token at position $t$ and $N$ denotes the number of tokens in $y$
+  \begin{equation}
+p(y)=\prod_{t=1}^{t=N} p(y_t|y_1,y_2, ...,y_{t-1})
+\label{LM}
+\end{equation}
+where $p(y_t|y_1,y_2, ...,y_{t-1})$ denotes the conditional probability of seeing word $y_t$ given that all its preceding words, i.e., $y_1,y_2, ...,y_{t-1}$. 
+n-gram language models have been widely used, which approximate the history with $n-1$ preceding words. 
+The conditional probability is then estimated from relative frequency counts: count the number of times that we see $y_{t-n+1}, ..., y_{t-1}$ and count the number of times 
+it is followed by $y_t$:
+\begin{equation}
+p(y_t|y_1,y_2, ...,y_{t-1})=\frac{C(y_{t-n+1}, ..., y_{t-1},y_t)}{C(y_{t-n+1}, ..., y_{t-1})}
+\end{equation}
+A variation of  algorithmic variations (e.g., smoothing techniques, model compressing techniques)
+ have been proposed  
+ \cite{kneser1995improved,rosenfeld2000two,stolcke2002srilm,teh2006hierarchical,federico2008irstlm,federico1996bayesian,chen1996empirical,bacchiani2004language,brants2007large,church2007compressing}. N-gram language modeling comes with the
+merit of easy and fast implementation, but suffers from a number of severe issues such as data sparsity, poor generalization to unseen words, 
+humongous space requirement for model storage and the incapability to handle long term dependency since the model is only able to consider 4-6  context words. 
+
+Neural language modeling (NLM) offers an elegant way to handle the issues of  data sparsity and the incapability to consider more context words.
+It was first proposed in \newcite{bengio2003neural} and improved by many others \cite{morin2005hierarchical,mnih2009scalable,mnih2012fast,le2014distributed,mikolov2010recurrent,graves2013generating,kim2016character}.
+ In NLM, each word is represented with a distinct $K$-dimensional distributed vector representation. Semantically similar words occupy similar positions in the vector space, which significantly 
+alleviate the data sparsity issue. 
+NLM takes as input the vector representations of context words and maps them to a vector representation:
+\begin{equation}
+h_{t-1}=f (y_1, y_2, ..., y_{t-1})
+\end{equation}
+where $f$ denotes the mapping function, which is 
+usually a feed-forward neural network model  
+such as recurrent neural nets or convolutional neural nets, as will be detailed in the following subsection. 
+The conditional probability distribution of predicting word $y_t$ given the history context is then given as follows: 
+\begin{equation}
+\begin{aligned}
+p(y_t|y_1,y_2, ...,y_{t-1})&=p(y_t|h_{t-1})\\
+s_t&=W [y_t, :]\cdot h_{t-1} \\
+p(y_t|h_{t-1})&=\softmax(s_t)
+\end{aligned}
+\end{equation}
+where the weight matrix $W \in \mathbb{R}^{V\times K}$, with $V$ the vocabulary size and $K$ being the dimensionality of the word vector representation. 
+$W [y_t, :]$ denotes the $y_t$ th row of the matrix. 
+The softmax function maps the scalar vector $s_t$ into a vector of probability distribution as follows:
+\begin{equation}
+\softmax(s_t)=\frac{\exp{(s_t)}}{\sum_{s\in V}\exp{(s)}}
+\end{equation}
+Since the dimensionality of the context is immune to the change of context length, theoretically, NLM is able to accommodate infinite number of context words without having to store all 
+distinct n-grams. 
+
+
+
+\subsection{Recurrent Neural Networks}
+Recurrent neural networks (RNN) are a neural network architecture which is specifically designed to handle sequential data. It was historically used to handle time sequential data \cite{elman1990finding,funahashi1993approximation}, and have been successfully applied to language processing \cite{mikolov2010recurrent,mikolov2011extensions,mikolov2012statistical,mikolov2012context}.
+Given a sequence of word tokens $\{y_1, y_2, ..., y_N\}$, where each word $y_t, t\in [1,N]$ is associated with a K-dimensional vector representation $x_t$.
+ RNN associates each time step $t$ with a hidden vector representation $h_t$, which can be thought of as a representation that embeds all information of previous tokens, i.e.,  $\{y_1, y_2, ..., y_{t}\}$. 
+$h_t$ is obtained 
+using a function $g$
+that
+ combine the previously built presentation for the previous time-step t-1, denoted as $h_{t-1}$, and the representation for the word of current time-step $x_t$:
+\begin{equation}
+h_t=g (h_{t-1}, x_t)
+\end{equation}
+The function $g$ can take different forms, with the simplistic one being as follows:
+\begin{equation}
+g(h_{t-1},x_t)=\sigma (W_{hh}\cdot h_{t-1}+W_{xh}\cdot x_t)
+\label{eq_rnn}
+\end{equation}
+where $W_{hh}, W_{xh} \in \mathbb{R}^{K\times 2K}$. Popular choices of $\sigma$ are non-linear functions such as sigmoid, $\tanh$ or ReLU. 
+From Equ. \ref{eq_rnn}, we can see that the dimensionality of $h_t$ is constant for different $t$. 
+
+\subsection{Long Short Term Memory}
+Two serve issues problems with RNNs are the gradient {\it exploding} problem and the gradient {\it vanishing} problem \cite{bengio1994learning}, where gradient {\it exploding}
+refers to the situation where the gradients become very large when the error from the training objective function is backpropagated over time, and  gradient {\it vanishing} 
+refers to the situation where the gradients approaches zero when the training error is backpropagated over a few time-steps. 
+These two issues render RNN models incapable of capturing the long-term dependency for long sequences. 
+
+One of the most effective ways to alleviate these problem is the Long Short Term Memory model, LSTM for short, first  introduced in \newcite{hochreiter1997long}, and adapted 
+, used, and further explored 
+by many others \cite{graves2005framewise,graves2009offline,chung2014empirical,tai2015improved,xu2015show,kalchbrenner2015grid,cheng2016long,oord2016pixel,jozefowicz2015empirical,greff2017lstm,zaremba2014recurrent}. The key idea of LSTMs is to associate each time step with different types
+of gates, and these gates provide flexibility in controlling informational flow: to control how much 
+information the current RNN wants to preserve through forget gates; 
+to control how much information a RNN want to receive through the input of current time-step through input gates; and how much information a RNN wants to 
+output to the next time-step through output gates. 
+
+More formally, 
+given a sequence of inputs  $\{y_1, y_2, ..., y_N\}$, where each word $y_t$ is associated with a $K$-dimensional vector representation $x_t$, 
+an LSTM associates each time step with an input gate, a memory gate and an output gate, 
+respectively denoted as $i_t$, $f_t$, and $o_t$.
+$c_t$ is the cell state vector at time $t$, and
+$\sigma$ denotes the sigmoid function. Then, the vector representation $h_t$ for each time step $t$ is given by:
+%
+\begin{eqnarray}
+i_t=\sigma (W_i\cdot [h_{t-1},x_t])\\
+f_t=\sigma (W_f\cdot [h_{t-1},x_t])\\
+o_t=\sigma (W_o\cdot [h_{t-1},x_t])\\
+l_t=\tanh(W_l\cdot [h_{t-1},x_t])\\
+c_t=f_t\circ c_{t-1}+i_t\circ l_t\\
+h_{t}=o_t\cdot \tanh(c_t)
+\end{eqnarray}
+where $W_i$, $W_f$, $W_o$, $W_l \in \mathbb{R}^{K\times 2K}$, and $\circ$ denotes the pairwise dot between two vectors. 
+Again, as in RNNs, 
+$h_t$ is used as a representation for the partial sequence  $\{y_1, y_2, ..., y_{t}\}$.
+
+\subsection{Sequence-to-Sequence Generation}
+The \sts model can be viewed as an extension of language model, 
+where $y$ is the target sentence, and the  
+ prediction of current word $y_t$ in $y$
+depends not only on all preceding words $\{y_1, y_2, ..., y_{t-1}\}$, but also on a source input $x$. 
+Each sentence concludes with a special end-of-sentence symbol \eos. 
+For example, in French-English translation, the English word to predict not only depends on all the preceding words, but also depend on the original French input; 
+as another example, the following word in a dialogue response depends both on preceding words in the response and the  message input. 
+The \sts model was first proved to yield good performance in machine translation \cite{sutskever2014sequence,bahdanau2014neural,cho2014learning,luong2015effective,luong2014addressing,luong2016achieving,sennrich2015neural,kim2016sequence,wiseman2016sequence,britz2017massive,wu2016google}, 
+and has been successfully extended to multiple natural language generation tasks such as text summarization \cite{rush2015neural,see2017get,chopra2016abstractive,nallapati2016abstractive,zeng2016efficient},
+parsing \cite{luong2015multi,vinyals2015grammar,jia2016data}, image caption generation \cite{chen2015mind,xu2015show,karpathy2015deep,mao2014deep}, etc. 
+
+More formally, 
+in \sts generation tasks, each input $x=\{x_1,x_2,...,x_{n_x}\}$ is paired with a sequence of outputs to predict: 
+$y=\{y_1,y_2,...,y_{n_y}\}$. 
+A  \sts generation model defines a distribution over outputs and sequentially predicts tokens using a softmax function:
+\begin{equation}
+\begin{aligned}
+p(y|x)
+&=\prod_{t=1}^{n_y}p(y_t|y_1,y_2,...,y_{t-1}, x)\\
+%% MG: \in [1,N] is for real numbers
+%&=\prod_{t\in [1,n_y]}p(y_t|x_1,x_2,...,x_t,y_1,y_2,...,y_{t-1})\\
+%&=\prod_{t\in [1,n_y]}\frac{\exp(f(h_{t-1},e_{y_t}))}{\sum_{y'}\exp(f(h_{t-1},e_{y'}))}
+\end{aligned}
+\label{equ-lstm}
+\end{equation}
+By comparing Eq.\ref{equ-lstm} with the conditional probability of language modeling in Eq. \ref{LM}, we can see that the only difference between them is the additional consideration of the 
+source input $x$.
+
+More specifically, a standard \sts model consists of two key components, a encoder, which maps the source input $x$ to a vector representation, and a decoder, which generates an output sequence based on the source sentence. 
+Both the encoder and the decoder are multi-layer LSTMs. To enable the encoder to access information from the encoder, the last state memory of the encoder is passed 
+to the decoder as the initial memory state, based on which words are sequentially predicted using a softmax function. 
+Commonly, input and output use different LSTMs with separate compositional parameters to capture different compositional patterns. 
+\subsubsection{Training}
+Given a training dataset where each target $y$ is paired with a source $x$, the learning objective is to minimize the negative log-likelihood of predicting each word in the target $y$ given the source $x$:
+\begin{equation}
+J=-\sum_{t=1}^{t=n_y} \log p(y_t|x,y_1,y_2,...,y_{t-1})
+\end{equation}
+Parameters including word embeddings and LSTMs' parameters are usually initialized from a uniform distribution and learned 
+and optimized using mini-batch stochastic gradient decent with momentum. 
+Gradient clipping is usually adopted by  scaling gradients when the norm exceeded a threshold\footnote{Usually set to 5} to avoid gradient explosion.
+Learning rate is gradually decreased towards the end of training.\footnote{For example, after 8 epochs, the learning rate is halved every epoch.}
+
+\subsubsection{Testing}
+Using a pre-trained model, we need to generate an output sequence $y$ given a new input $x$. The problem can be formalized as a standard search problem: generating 
+a sequence of tokens with the largest probability assigned by the pre-trained model, where standard
+greedy search and beam search can be immediately used. 
+For greedy search, at each time step, the model picks the word with largest probability. 
+For beam search with beam size $K$, 
+for each time-step, we expand each of the $K$  hypotheses by $K$ children, which gives at $K\times K$ hypotheses. We keep the top $K$ ones, delete the others and move on to the next time-step. 
+
+
+During decoding, the algorithm terminates when an \eos token is predicted.
+At each time step, either a greedy approach or beam search can be adopted for word prediction.
+Greedy search selects the token with the largest conditional probability, the embedding of which is then combined with preceding output to predict the token at the next step. 
+
+\subsection{Attention Mechanisms}
+The standard version \sts model only uses the source representation once, which is through initializing the decoder LSTM using the final state of the encoder  LSTM. 
+It is challenging to handle long-term dependency using such a mechanism: the hidden state of the decoder LSTM changes over time as new words are decoded and combined, which 
+dilutes the influence from the source sentence.  
+
+One effective way to address such an issue is using attention mechanisms \newcite{bahdanau2014neural,xu2015show,jean2015montreal,luong2015effective,mnih2014recurrent,chorowski2014end}. 
+The attention mechanisms
+adopt a look-back strategy by
+linking the current decoding stage with each input time-step
+in an attempt to consider which part of the
+input is most responsible for the current decoding time-step. 
+
+More formally, suppose that each time-step of the source input is associated with a vector representation $h_{i}, i\in [1,n_x]$ computed by LSTMs, where $n_x$ denotes the length of the source sentence. 
+$h_{i} \in \mathbb{R}^{K\times 1}$.
+At the current decoding time-step $t$, attention models would first link the current step
+decoding information $h_{t-1}\in \mathbb{R}^{K\times 1}$ with each of the input time step,  characterized by a
+strength indicator $v_i$:
+\begin{equation}
+v_i=h_{t-1}^T\cdot h_{i}
+\end{equation}
+Other than using the dot product to compute the strength indicator $v_i$, many other mechanisms have been used such as vector concatenation, where $v_i=\tanh(W\cdot [h_{t-1}, h_i])$, $W \in \mathbb{R}^{K\times 2K}$,
+or the general dot-product mechanism, where  $v_i=h_{t-1}^T\cdot W\cdot h_{i}$, 
+$W \in \mathbb{R}^{K\times K}$,
+as detailedly explored in \cite{luong2015effective}. 
+$v_t$ is then normalized to a probabilistic value $a_i$ using a softmax function:
+\begin{equation}
+a_i=\frac{\exp{(v_i)}}{\sum_{i'}\exp(v_{i'})}
+\end{equation}
+The context vector $ct_{t-1}$ is the weighted sum of hidden memories on the source side:
+\begin{equation}
+ct_{t-1}=\sum_{i=1}^{i=n_x} a_i\cdot h_{i}
+\label{attention}
+\end{equation}
+As can be seen from Eq. \ref{attention}, a larger value of strength indicator $a_i$ indicates a more contribution to the context vector. 
+The vector representation used to predict the upcoming word  $\hat{h}_{t-1}$,  is obtained by combining $ct_{t-1}$ and $h_{t-1}$:
+\begin{equation}
+\hat{h}_{t-1}=\tanh (\hat{W}[ct_{t-1},h_{t-1}])
+\end{equation}
+where $\hat{W} \in \mathbb{R}^{K\times 2K}$
+\begin{equation}
+p(y_t|y_1,y_2,...,y_{t-1},x)=\softmax(W [y_t, :]\cdot \hat{h}_{t-1})
+\end{equation}
+$W \in \mathbb{R}^{V\times K}$, with $V$ the vocabulary size and $K$ being the dimensionality of the word vector representation.
+The context vector $ct_{t-1}$ is not only used to predict the upcoming word $y_t$, but also forwarded to the LSTM operation of the next step \cite{luong2015effective}: 
+\begin{eqnarray}
+i_t=\sigma (W_i\cdot [h_{t-1},x_t,ct_{t-1}])\\
+f_t=\sigma (W_f\cdot [h_{t-1},x_t,ct_{t-1}])\\
+o_t=\sigma (W_o\cdot [h_{t-1},x_t,ct_{t-1}])\\
+l_t=\tanh(W_l\cdot [h_{t-1},x_t,ct_{t-1}])\\
+c_t=f_t\circ c_{t-1}+i_t\circ l_t\\
+h_{t}=o_t\cdot \tanh(c_t)
+\end{eqnarray}
+where $W_i$, $W_f$, $W_o$, $W_l \in \mathbb{R}^{K\times 3K}$.
+
+Up until now, all necessary background knowledge for training a neural \sts model has been covered. 
+
+\section{Memory Networks}
+Memory networks \cite{weston2014memory,sukhbaatar2015end} are a class of neural
+network
+ models that are able to perform natural 
+language inference by 
+operating on 
+ memory components, through which text information can be stored, retrieved, filtered, and reused. The memory components in memory networks
+ can embed both long-term memory (e.g., common sense facts about the world) and short-term context (e.g., the last few turns of dialog).
+ Memory networks have been successfully applied to many natural language  tasks such as question answering \cite{bordes2014question,weston2015towards}, 
+ language modeling \cite{sukhbaatar2015end,hill2015goldilocks} and dialogue \cite{dodge2015evaluating,bordes2016learning}. 
+ 
+\subsubsection{ End-to-End Memory Networks} 
+End-to-End Memory Networks (MemN2N) is a  type of memory network model specifically tailored to  natural language inference tasks. 
+The input to the MemN2N is a query $x$, for example, a question, along with a set of sentences, denoted by context or memory, $C$=$c_1$, $c_2$, ..., $c_N$, where N denotes
+the number of context sentences. 
+Given the input $x$ and $C$, the goal is to produce an output/label $a$, for example, the answer to the input question $q$. 
+
+Given this setting, the MemN2N network needs to retrieve useful information from the context, separating information wheat from chaff. 
+In the neural network context, 
+the query $x$ is first transformed to a vector representation $u_0$ to embed  the information within  the query. 
+Such a process can be done using recurrent nets, CNN \cite{krizhevsky2012imagenet,kim2014convolutional}.
+For this paper, we adopt 
+a simple model that
+sums
+ up its constituent word embeddings: $u_0=Ax$. The input x is a bag-of-words vector and $A$ is the $d\times V$ word embedding matrix where $d$ denotes the vector dimensionality and $V$ denotes the vocabulary size. Each memory $c_i$ is similarly transformed to vector $m_{i}$.
+The model will read information from the memory by linking input representation $q$ with memory vectors $m_{i}$ using softmax weights:
+\begin{equation}
+o_1=\sum_{i}p_i^1 m_{i} ~~~~~~~~~~p_i^1=\softmax(u_0^T m_i)
+\end{equation}
+
+
+The goal is to select memories relevant to the input query $x$, i.e., the memories with large values of $p_i^1$. The queried memory vector $o_1$ is the weighted sum of memory vectors.
+The queried memory vector $o_1$ will be added on top of original input, $u_1=o_1+u_0$.
+$u_1$ is then used to query the memory vector.
+Such a process is repeated by querying the memory N times (so called ``hops''):
+\begin{equation}
+o_n=\sum_{i}p_i^n m_{i} ~~~~~~~~~~p_i^n=\softmax(u_{n-1}^T m_i)
+\end{equation}
+where $n\in [1,N]$.
+ One can think of this iterative process as a page-rank way of propagate the influence of the query to the context:
+In the first iteration, sentences that semantically related to the query will be assigned higher weights; 
+in n$^{\text{th}}$  iteration, sentences that are semantically close the highly weighted sentences in the n-1$^{\text{th}}$ iteration will be assigned higher weights. 
+
+In the end, $u_N$ is input to a softmax function for the final prediction:
+\begin{equation}
+a=\softmax (u_N^T y_1,u_N^T y_2,...,u_N^T y_L)
+\end{equation}
+where $L$ denotes the number of candidate answers and $y$ denotes the representation of the answer. If the answer is a word, $y$ is the corresponding word embedding. If the answer is a sentence, $y$ is the embedding for the sentence achieved in the same way as we obtain embeddings for query $x$ and memory $c$.
+
+\section{Policy Gradient Methods}
+Policy gradient methods \cite{aleksandrov1968stochastic,williams1992simple} are a type of reinforcement learning model that 
+learn the parameters that parametrize policies through the expected reward using gradient decent.\footnote{\url{http://www.scholarpedia.org/article/Policy_gradient_methods}}
+By comparison to other reinforcement learning models such as Q-learning, policy gradient methods do not suffer from the problems such as the 
+lack of guarantees of a value function (since it does not require an explicit estimation of the value function), or the intractability problem due to continuous states or actions  in high dimensional spaces.
+
+At the current time-step $t$,
+policy gradient methods define a probability distribution over all possible actions  to take (i.e., $a_t$) given the current state $s_{t-1}$ and previous actions that have been taken: 
+\begin{equation}
+a_t\sim p(a_t|a_{1:t-1},s_{t-1})
+\end{equation}
+The policy distribution $\pi(a_t|a_{1:t-1},s_{t-1})$ is parameterized by  parameters $\Theta$. 
+Each action $a_t$ is associated with a reward $r(a_t)$, and we thus have a sequence of action-reward pairs $\{a_t, r(a_t)\}$. 
+The goal of policy gradient methods is to optimize the policy parameters so that the expected reward return (denoted by $J(\Theta)$) is optimized, where $J(\Theta)$
+can be written as follows:
+ \begin{equation}
+ \begin{aligned}
+ J(\Theta)&=E\{\sum_t r(a_t) \}\\
+ &=\sum_t \sum_{a_t}p(a_t)\cdot r(a_t)
+\end{aligned}
+ \end{equation}
+ parameters involved in $ J(\Theta)$ can be optimized through standard gradient decent: 
+ \begin{equation}
+ \Theta_{h+1}= \Theta_{h}+\alpha \nabla_{\theta} J
+ \end{equation}
+ where $\alpha$ denotes the learning rate for stochastic gradient decent. 
+ 
+ The major problem involved in policy gradient methods is to obtain a good estimation of the policy gradient $ \nabla_{\theta} J$. One of the most methods to 
+ estimate $ \nabla_{\theta} J$ is using the likelihood ratio \cite{glynn1990likelihood,williams1992simple}, better know as the REINFORCE model, with the trick being used 
+ as follows:
+ \begin{equation}
+ \nabla_{\theta} p_{\theta}(a)=p_{\theta}(a) \nabla_{\theta} \log p_{\theta}(a) 
+ \end{equation}
+ then we have:
+  \begin{equation}
+  \begin{aligned}
+  \nabla_{\theta} J(\theta)&=\sum_a p_{\theta}(a)\nabla_{\theta}\log p_{\theta}(a)r(a) \\
+  &=E(\nabla_{\theta}\log p_{\theta}(a)r(a) )
+  \end{aligned}
+ \end{equation}
+In order to reduce the variance of the estimator, a baseline $b$ is usually subtracted from the gradient, i.e., 
+  \begin{equation}
+  \nabla_{\theta} J(\theta)=E(\nabla_{\theta}\log p_{\theta}(a) [r(a)-b] )
+ \end{equation}
+where baseline $b$ can be any arbitrarily chosen scalar \cite{williams1992simple}, because it does not introduce bias in the graident:
+$\sum_a p_{\theta}(a)=1 \Rightarrow b\sum_a \nabla_{\theta} p_{\theta}(a)=0$. 
+Suggested values of baseline $b$ include the mean value of all previously observed rewards,  
+optimal estimator as described in
+\newcite{peters2008reinforcement}, or estimator output from another neural model \cite{zaremba2015reinforcement,ranzato2015sequence}.
+

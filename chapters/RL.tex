@@ -1,0 +1,545 @@
+In the previous two sections, 
+we have talked about how a chit-chat system can avoid general responses and produce consistent responses regarding different questions. 
+So far, we have only been concerned with the quality of single-turn responses, but this is actually an overly simplified approximation  
+of humans' conversations.
+Humans' conversations usually consist of tens, or even hundreds of turns.
+These multi-turn conversations usually 
+ have structures, e.g., starting with an opener, setting up contexts, 
+getting to the points, etc, and humans are good at managing the informational flow of a conversation, that lead to the long-term success (including overall coherence, meaningfulness, etc) of a conversation.
+
+Current models are trained by predicting the next dialogue turn in a given conversational context using the maximum-likelihood estimation (MLE) objective function. 
+Its incapability of handling this conversational long-term success results in many pitfalls:
+First, 
+the fact that \sts models tend to generate highly generic responses, as discussed in Chapter \ref{mutual} actually results from this incapability: responses such as {\it ``I don't know''} are apparently not a good action to take in long term, since it closes the conversation down; 
+Second, as illustrated in the two sample conversations on the  left of Table \ref{con-simulation},  the system becomes stuck in an infinite loop of repetitive responses. This is due to MLE-based \sts models' inability to account for repetition.
+In example 2 (bottom left), the dialogue falls into an infinite loop after three turns, with both agents generating dull, generic utterances like {\it i don't know what you are talking about} and {\it you don't know what you are saying}. 
+Looking at the entire conversation, utterance (4) turns out to be a bad action to take
+%While it is an informative and coherent response to Utterance (1) asking about age, 
+because it offers no way of continuing the conversation.\footnote{A similar rule is often suggested in improvisational comedy: \url{https://en.wikipedia.org/wiki/Yes,_and...}}
+\begin{table*}
+\centering
+\small
+\begin{tabular}{ll}\toprule
+{\bf Baseline mutual information model}  & {\bf Proposed reinforcement learning model} \\\midrule
+\textsc{A}: {Where are you going?} (1)             & A: Where are you going? (1)   \\
+\textsc{B}: {I'm going to the restroom}. (2)    & B: I'm going to the police station. (2) \\
+\textsc{A}: {See you later}. (3)			    & A: I'll come with you. (3) \\
+\textsc{B}: {See you later}. (4)			    & B: No, no, no, no, you're not going anywhere. (4) \\
+\textsc{A}: {See you later}. (5)		    & A: Why? (5) \\
+\textsc{B}: {See you later}. (6)			    & B: I need you to stay here. (6)\\
+...	&								    A: I don't know what you are talking about. (7)\\
+...& ... \\\midrule
+\textsc{A}: {how old are you?} (1) & A: How old are you? (1)\\
+\textsc{B}: {I'm 16.} (2)& B: I'm 16. Why are you asking? (2)\\
+\textsc{A}: {16?} (3) & A I thought you were 12. (3) \\
+\textsc{B}: {I don't know what you are talking about.} (4) & B: What made you think so? (4)\\
+\textsc{A}: {You don't know what you are saying.} (5) & A: I don't know what you are talking about. (5)\\
+\textsc{B}: {I don't know what you are talking about .} (6) & B: You don't know what you are saying. (6)\\
+\textsc{A}: {You don't know what you are saying.} (7) & ... \\
+... & ... \\\bottomrule
+\end{tabular}					
+\caption[Dialogue simulation between two agents using \sts models]{ Left Column: Dialogue simulation between two agents using  a \sts trained on the OpenSubtitles dataset. The first turn (index 1) is input by the authors. Then the two agents take turns conversing, taking as input the other agent's prior generated turn. The output is generated using the mutual information model \cite{li2015diversity} in which an N-best list is first obtained using beam search based on p(t$|$s) and reranked by linearly combining the backward probability p(s$|$t), where t  and s respectively denote targets and  sources.  Right Column: Dialogue simulated using the proposed reinforcement learning model. The new model has more forward-looking utterances (questions like ``Why are you asking?" and offers like ``I'll come with you") and lasts longer before it falls into conversational black holes.}
+\label{con-simulation}	
+\end{table*}
+
+These challenges suggest we need a conversation framework that has the ability to (1)  integrate developer-defined rewards that better mimic the true goal of chatbot development
+  and (2)  model the long-term influence of a generated response in an ongoing dialogue.
+
+To achieve these goals,  we draw on the insights of reinforcement learning, which
+have been widely applied in MDP and POMDP dialogue systems (see Related Work section for details).
+We introduce a neural reinforcement learning (RL) generation method, 
+which can optimize long-term rewards designed by system developers.
+Our model uses the encoder-decoder architecture as its backbone, and 
+ simulates conversation between two virtual agents to explore the space of possible actions while learning to maximize expected reward.
+We define simple heuristic approximations to rewards that characterize
+ good conversations: good conversations are forward-looking \cite{All92} or interactive (a turn suggests
+ a following turn), informative, and coherent.
+  The parameters of an encoder-decoder RNN define a policy over an infinite action space consisting of all possible utterances.
+  The agent learns a policy by optimizing the long-term developer-defined reward from ongoing dialogue simulations using policy gradient methods \cite{williams1992simple},
+  rather than the MLE objective defined in standard \sts models. 
+
+Our model thus integrates the power of \sts systems to learn compositional semantic
+meanings of utterances with the strengths of reinforcement learning in
+optimizing for long-term goals across a conversation.
+ Experimental results (sampled results at the right panel of Table \ref{con-simulation}) demonstrate that our approach fosters a more sustained dialogue and
+  manages to produce more interactive  responses than standard \sts models trained using the MLE objective.
+\section{Model}  
+  In this section, we describe in detail the components of the proposed RL model. 
+The learning system consists of two agents. 
+We use $p$ to denote sentences generated from the first agent and  $q$ to denote sentences from the second. The two agents take turns talking with each other. A dialogue can be represented as an alternating sequence of sentences generated by the two agents: $p_1, q_1, p_2, q_2, ..., p_{i}, q_{i}$.  We view the generated sentences as actions that are taken according to a policy defined by an
+encoder-decoder recurrent neural network language model.
+
+The parameters of the network are optimized to maximize the expected future reward using policy search.  
+Policy gradient methods are more appropriate for our scenario than Q-learning \cite{mnih2013playing}, because we can initialize the encoder-decoder RNN using
+MLE parameters that already produce plausible responses, before changing the objective and tuning towards a policy that maximizes long-term reward.
+Q-learning, on the other hand, directly estimates the future expected reward of each action, which can differ from the MLE objective by orders of magnitude,
+thus making MLE parameters inappropriate for initialization.
+The components (states, actions, reward, etc.) of our sequential decision problem are summarized in the following sub-sections.
+
+\subsection{Action} An action $a$ is the dialogue utterance to generate. The action space is infinite since arbitrary-length sequences can be generated.
+
+\subsection{State} A state is denoted by the previous two dialogue turns $[p_i,q_i]$. 
+The dialogue history is further transformed to a vector representation by feeding the concatenation of $p_i$ and $q_i$ into an LSTM encoder model as described in \newcite{li2015diversity}.
+
+\subsection{Policy} A policy takes the form of an LSTM encoder-decoder (i.e., $p_{RL}(p_{i+1}|p_{i}, q_i)$ ) and is defined by its parameters.
+Note that we use a stochastic representation of the policy (a probability distribution over actions given states).
+A deterministic policy would result in a discontinuous objective that is difficult to optimize using gradient-based methods.
+
+\subsection{Reward} $r$ denotes the reward obtained for each action. In this subsection, we discuss major factors that contribute to the success of a dialogue and describe how 
+approximations to these factors can be operationalized in computable reward functions. 
+
+\paragraph{Ease of answering}
+A turn generated by a machine should be easy to respond to.
+This aspect of a turn is related to its {\em forward-looking function}: the constraints
+a turn places on the next turn \cite{All92}.
+We propose measuring the ease of answering a generated turn by
+using the negative log likelihood of responding to that utterance with a dull response.
+We manually constructed a list of dull responses $\mathbb{S}$ consisting 8 dialogue utterances such as ``I don't know what you are talking about", ``I have no idea", etc., that we and others have found
+occur very frequently in \sts models of conversations.
+The reward function is given as follows:
+\begin{equation}
+r_1=-\frac{1}{N_{\mathbb{S}}}\sum_{s\in \mathbb{S}}\frac{1}{N_s}\log p_{\text{seq2seq}} (s|a)
+\label{eq1}
+\end{equation}
+where $N_{\mathbb{S}}$ denotes the
+number of dull responses that we predefined 
+ and $N_s$ denotes the number of tokens in the dull response $s$. 
+Although of course there are more ways to generate dull responses than the list can cover,
+many of these responses are likely to fall into similar regions in the vector space computed by the model.
+A system less likely to generate utterances in the list is thus also less likely to generate other dull responses. 
+
+$p_{\text{seq2seq}}$ represents the  likelihood output by \sts models. 
+It is worth noting that $p_{\text{seq2seq}}$ is different from the stochastic policy function $p_{RL}(p_{i+1}|p_{i}, q_i)$, since the former is learned based on the MLE objective of the \sts model while the latter is the policy optimized for long-term future reward in the RL setting.
+
+\paragraph{Information Flow}
+We want each agent to contribute new information at each turn to keep the dialogue moving and avoid repetitive sequences. 
+We therefore propose penalizing semantic similarity between consecutive turns from the same agent. 
+Let $h_{p_i}$ and $h_{p_{i+1}}$ denote representations obtained from the encoder for two consecutive turns $p_i$ and $p_{i+1}$. The reward is given by the negative log of the cosine similarity
+between them:
+\begin{equation}
+r_2=-\log \text{cos}(h_{p_i},h_{p_{i+1}}) = -\log \text{cos} \frac{h_{p_i} \cdot h_{p_{i+1}}}{\lVert h_{p_i} \rVert \lVert h_{p_{i+1}} \rVert}
+\label{sim}
+\end{equation}
+\paragraph{Semantic Coherence}
+We also need to measure the adequacy of responses to avoid situations in which the generated replies are highly rewarded but are ungrammatical or not coherent.
+ We therefore  consider the mutual information between the action $a$ and previous turns in the history to ensure the generated responses are coherent and appropriate: 
+\begin{equation}
+r_3=\frac{1}{N_a}\log p_{\text{seq2seq}}(a|q_i,p_i)+\frac{1}{N_{q_i}}\log p_{\text{seq2seq}}^{\text{backward}}(q_i|a)
+\label{eq4}
+\end{equation}
+$p_{\text{seq2seq}}(a|p_i,q_i)$  denotes the probability of generating response $a$ given the previous dialogue utterances $[p_i,q_i]$. $p_{\text{seq2seq}}^{\text{backward}}(q_i|a)$ denotes the backward probability of generating the previous dialogue utterance $q_i$ based on response $a$. $p_{\text{seq2seq}}^{\text{backward}}$ is trained in a similar way as standard \sts models with sources and targets swapped. 
+Again, to control the influence of target length, both $\log p_{\text{seq2seq}}(a|q_i,p_i)$ and  $\log p_{\text{seq2seq}}^{\text{backward}}(q_i|a)$ are scaled by the length of targets.
+The final reward for  action $a$ is a weighted sum of the rewards discussed above:
+\begin{equation}
+r(a,[p_i,q_i])=\lambda_1 r_1+\lambda_2 r_2+\lambda_3 r_3
+\label{reward}
+\end{equation}
+
+The central idea behind our approach is to simulate the process of two virtual agents taking turns talking with each other, through which we can explore the state-action space and learn a policy
+$p_{RL}(p_{i+1}|p_{i}, q_i)$ that leads to the optimal expected reward.
+We adopt an AlphaGo-style strategy \cite{silver2016mastering} by initializing the RL system using a general response generation policy which is learned from a fully supervised setting. 
+\section{Simulation}
+\subsection{Supervised Learning}
+ For the first stage of training, we build on prior work of predicting a generated target sequence given dialogue history using the supervised \sts model \cite{vinyals2015neural}.
+ Results from supervised models will be later used for initialization. 
+ 
+We trained a \sts model with attention \cite{bahdanau2014neural} on the OpenSubtitles dataset, which consists of roughly 80 million source-target pairs. 
+We treated each turn in the dataset as a target and the concatenation of two previous sentences as source inputs. 
+\subsection{Mutual Information}
+Samples from \sts models are often times dull and generic, e.g., ``{\it i don't know}" \cite{li2015diversity}.
+We thus do not want to initialize the policy model using the pre-trained \sts models because this will lead to a lack of diversity in the RL models' experiences. 
+ \newcite{li2015diversity} showed that modeling mutual information between sources and targets will significantly decrease the chance of generating dull responses and improve  general response quality.
+We now show how we can obtain an encoder-decoder model which generates maximum mutual information responses. 
+
+
+ 
+\begin{comment}  
+For any pair of source $s=[p_i,q_i]$ and target $\hat{t}=p_{i+1}$, the mutual information between them is given by:
+\begin{equation}
+\begin{aligned}
+m(p_{i+1}||q_{i},p_i)=\lambda\log p_{\sts}(p_{i+1}|p_i,q_i)\\
++(1-\lambda)\log p_{\sts}(q_i|p_{i+1})
+\end{aligned}
+\label{MMI}
+\end{equation}
+
+$\lambda$ denotes the trade-off between the probabilities of sources-given-targets and targets-given-sources and is set to 0.5. 
+\end{comment}
+As illustrated in \newcite{li2015diversity}, direct decoding from Eq~\ref{eq4} is infeasible since the second term 
+ requires
+ the target sentence to be  completely generated.
+ Inspired by recent work on sequence level learning \cite{ranzato2015sequence}, we treat the problem of 
+generating maximum mutual information response 
+as a reinforcement learning problem in which a reward of mutual information value is observed when the model arrives at the end of  a sequence. 
+
+Similar to \newcite{ranzato2015sequence}, we use policy gradient methods \cite{sutton1999policy,williams1992simple} for optimization. We initialize the policy model $p_{RL}$ using a pre-trained $p_{\sts}(a|p_i,q_i)$ model. 
+Given an input source $[p_i,q_i]$, 
+we generate a candidate list  $A=\{\hat{a}|\hat{a}\sim p_{RL}\}$. 
+For each generated candidate $\hat{a}$, we will obtain the mutual information score $m(\hat{a}, [p_i,q_i])$ from the pre-trained $p_{\sts}(a|p_i,q_i)$ and $p^{\text{backward}}_{\sts}(q_i|a)$.
+This mutual information score will be used as a reward and back-propagated to the encoder-decoder model, tailoring it to generate sequences with higher rewards. 
+We refer the readers to \newcite{zaremba2015reinforcement}  and
+\newcite{williams1992simple} for details.  The expected reward for a sequence is given by:
+\begin{equation}
+\begin{aligned}
+&J(\theta)=\mathbb{E} [m(\hat{a},[p_i,q_i]) ]\\
+\end{aligned}
+\end{equation}
+The gradient is
+estimated using the likelihood ratio trick:
+\begin{equation}
+\begin{aligned}
+\nabla J(\theta)=m(\hat{a},[p_i,q_i])\nabla\log p_{RL}(\hat{a}|[p_i,q_i])
+\end{aligned}
+\end{equation}
+We update the parameters in the encoder-decoder model using stochastic gradient descent. 
+A
+curriculum learning strategy is adopted \cite{bengio2009curriculum} 
+as in \newcite{ranzato2015sequence}  
+such that, for
+every sequence of length $T$ we use the MLE loss for the first $L$ tokens and the reinforcement algorithm for the remaining $T-L$ tokens. We gradually anneal 
+the value of $L$ to zero.
+A baseline strategy is employed to decrease the learning variance:
+an additional neural model takes as inputs the generated target and the initial source and outputs a baseline value, similar to the strategy 
+adopted by \newcite{zaremba2015reinforcement}. 
+ The final gradient is thus:
+\begin{equation}
+\begin{aligned}
+\nabla J(\theta)=\nabla\log p_{RL}(\hat{a}|[p_i,q_i]) [m(\hat{a},[p_i,q_i])-b]
+\end{aligned}
+\end{equation}
+
+
+\subsection{Dialogue Simulation between Two Agents}
+\label{sec:learning}
+We simulate conversations between the two virtual agents and 
+have them take turns talking with each other. The simulation proceeds as follows: at the initial step, a message from the training set is fed to the first agent. The agent encodes the input message to a vector representation and starts decoding to generate  a response output. 
+Combining the immediate output from the first agent with the dialogue history, the second agent updates the state by encoding the dialogue history into a representation and uses the decoder RNN to generate responses, which are subsequently fed back to the first agent, and the process is repeated. 
+
+\begin{figure*}[!ht]
+    \centering
+    %\includegraphics[width=6in]{2.png}
+    \includegraphics[width=6in]{img/simulate.png}
+\caption{Dialogue simulation between the two agents. }
+\end{figure*}
+
+
+
+\paragraph{Optimization}
+We initialize the policy model $p_{RL}$ with parameters from the mutual information model described in the previous subsection. 
+We then use policy gradient methods to find parameters that lead to a larger expected reward.
+%AR: Changed to address comment from reviewer #1
+%For a sequence of actions $\{a_1, a_2, ..., a_T\}$, the reward function is given by:
+The objective to maximize is the expected future reward:
+\begin{equation}
+%L=\mathbb{E} [ \sum_{i=1}^{i=T} R(a_i,[p_i,q_i] ) ]
+J_{RL}(\theta)=\mathbb{E}_{p_{RL}(a_{1:T})} \left[ \sum_{i=1}^{i=T} R(a_i,[p_i,q_i] ) \right]
+\end{equation}
+where $R(a_i,[p_i,q_i])$ denotes the reward resulting from action $a_i$. 
+We
+use the likelihood ratio trick 
+\cite{williams1992simple,glynn1990likelihood} for gradient updates:
+\begin{equation}
+%\nabla J(\theta)={ \sum_{i}\nabla\log p(a_i|p_i,q_i)} \sum_{i=1}^{i=T} R(a_i,[p_i,q_i] )
+%AR: I think this is an approximation by sampling?
+\nabla J_{RL}(\theta) \approx { \sum_{i}\nabla\log p(a_i|p_i,q_i)} \sum_{i=1}^{i=T} R(a_i,[p_i,q_i] )
+\end{equation}
+
+\begin{comment}
+Baseline strategy is employed, which is standardly employed in training policy gradient model due to the huge variance values where 
+\begin{equation}
+\frac{\partial{L}}{\partial{\theta}}=\frac{\partial\sum_{i}\log p(a_i|p_i,q_i)}{\partial\theta} \sum_{i=1}^{i=T} (R(a_i,[p_i,q_i] )-b)
+\end{equation}
+\begin{equation}
+b=\frac{{\partial\sum_{i}\log p(a_i|p_i,q_i)} \sum_{i=1}^{i=T} R(a_i,[p_i,q_i] )}{ \partial\sum_{i}\log p(a_i|p_i,q_i)}
+\end{equation}
+\end{comment}
+
+\begin{comment}
+\begin{equation}
+\begin{aligned}
+\text{Loss}=&- \mathbb{E}_{a} [ \hat{R}(a,[p_i,q_i] ) ]\\
+=&-\sum_{a} p_{RL}(a|p_i,q_i) [ \hat{R}(a,[p_i,q_i]) ]
+\end{aligned}
+\end{equation}
+where $\hat{R}(a,[p_i,q_i])$ denotes future expected reward resulting from action $a$. $\hat{R}(a,[p_i,q_i])$ consists of two parts,
+the immediate reward  $r(a,[p_i,q_i])$ observed from action $a$ computed using Eq~\ref{reward}  
+and 
+the value of future reward denoted as $r_{\text{future}}(a,[p_i,q_i])$ , 
+which is equivalent to the expectation of the reward introduced by the sequence $a'$ generated from the other agent in response to  $a$.
+ 
+ 
+\begin{equation}
+r_{\text{future}}(a,[p_i,q_i])=\mathbb{E}_{a'} [ \hat{R}(a',[q_i,a])] 
+\label{eq5}
+\end{equation}
+In Eq~\ref{eq5}, $[q_i,a]$ denotes the new state the system arrives after taking the action $a$, which is represented by the two consecutive dialogue turns $a$ and $q_i$.
+We therefore have 
+\begin{equation}
+\begin{aligned}
+\text{Loss}=&- \mathbb{E}_{a} [ \hat{R}(a,[p_i,q_i] ) ]\\
+=& -\sum_{a} p_{RL}(a|p_i,q_i) r(a,[p_i,q_i])\\
+-&\gamma\sum_{a} p_{RL}(a|p_i,q_i)\sum_{a'} \hat{R}(a',[q_i,a])
+\end{aligned}
+\label{eq6}
+\end{equation}
+where $\gamma$ denotes the discount factor and is set to 0.99. 
+Two practical issues arise regarding Eq~\ref{eq6}. First, computing reward expectation requires summing over all possible actions which is infeasible given the infinite number of response candidates. 
+We turn to a simplified strategy which approximates the entire action space by sampling a small list of candidates, denoted as C. $\mathbb{E}_{a} [ \hat{R}(a,[p_i,q_i] ) ] $ can then be rewritten as:
+\begin{equation}
+\begin{aligned}
+& \mathbb{E}_{a} [ \hat{R}(a,[p_i,q_i] ) ]\\
+&~~~~~~~~~~~~~ \approx \sum_{a\in C} \frac{p_{RL}(a|p_i,q_i)}{\sum_{a*\in C} p_{RL}(a|p_i,q_i)} [ \hat{R}(a,[p_i,q_i]) ]
+\end{aligned}
+\label{eq7}
+\end{equation}
+To avoid favoring shorter sequences, we replace $p_{RL}(a|p_i,q_i)$ with $p'_{RL}(a|p_i,q_i)$ which is the geometric mean of word-predicting probability:
+\begin{equation}
+p'_{RL}(a|p_i,q_i)=[p_{RL}(a|p_i,q_i)]^{1/N_a}
+\end{equation}
+where $N_a$ denotes the length of the generated sequence. 
+Eq~\ref{eq7} is differentiable and gradients can be computed using standard back-propagation techniques. We refer the readers to the appendix for the full derivation of the objective function.
+
+Since most of the generated translations in the N-best list are similar, differing only by punctuation or minor
+morphological variations, candidates are generated by sampling from the distribution with additional Gaussian noise to foster more diverse candidates. 
+\end{comment}
+\subsection{Curriculum Learning}
+A curriculum learning strategy is again employed  in which we begin by simulating the dialogue for 2 turns, and gradually increase the number of simulated turns. 
+We generate 5 turns at most, as  the number of candidates to examine grows exponentially in the size of the candidate list.
+Five candidate responses are generated at each step of the simulation.
+
+
+
+In this section, we  describe experimental results along with qualitative analysis.  We evaluate dialogue generation systems using both human judgments and
+two automatic metrics: conversation length (number of turns in the entire session) and diversity.
+\section{Experiments}
+\subsection{Dataset}
+The dialogue simulation requires  high-quality initial inputs fed to the agent. For example, an initial input of ``why ?" is undesirable since it is unclear how the dialogue could proceed. 
+We take a subset of 10 million messages from the OpenSubtitles dataset and extract 0.8 million sequences with the lowest likelihood of generating the response
+``{\it i don't know what you are taking about}" to ensure initial inputs are easy to respond to.
+
+
+\subsection{Automatic Evaluation}
+Evaluating dialogue systems is difficult. Metrics such as BLEU
+\cite{papineni2002bleu} and perplexity have been widely used for
+dialogue quality evaluation
+\cite{li2015diversity,vinyals2015neural,sordoni2015neural}, but it
+is widely debated how well these automatic metrics are correlated
+with true response quality \cite{galley2015deltableu}.
+Since the goal of the proposed system is not to predict the highest probability response, but rather the long-term success of the dialogue, 
+we do not employ BLEU or perplexity for evaluation.\footnote{We found the RL model performs worse on BLEU score. On a random sample of 2,500 conversational pairs, single reference BLEU scores for RL models, mutual information models and vanilla \sts models  are respectively 1.28, 1.44, and 1.17.  BLEU is highly correlated with perplexity in generation tasks. Since the RL model is trained based on future reward rather than MLE, it is not surprising that the RL based models achieve lower BLEU score.}
+
+ 
+\paragraph{Length of the Dialogue}
+The first metric we propose is the length of the simulated dialogue. We say a dialogue ends when one of the agents starts generating dull responses such as ``{\it i don't know}" \footnote{We use a simple rule matching method, with a list of 8 phrases that count as dull responses.  Although this can lead to both false-positives and -negatives, it works pretty well in practice. }
+or two consecutive utterances from the same user are highly overlapping.\footnote{Two utterances are considered to be repetitive if they share more than 80 percent of their words.}
+
+
+%We acknowledge the problems with the proposed evaluation metric. The success of the metric is predicated on the assumption that the simulated dialogue is already meaningful and coherent, which is  not always true. The two agents can always produce random sequences that are not semantically related to ``{\it i don't know}" and get high evaluation score.  Despite the shortcoming, the metric
+%captures one specific aspect of 
+% the long-term successfulness of dialogues and the capability of models that generate them. 
+
+The test set consists of 1,000 input messages. 
+To reduce the risk of circular dialogues, we limit the number of simulated turns to be less than 8.  
+Results are shown in Table \ref{numturns}. As can be seen, using mutual information leads to more sustained conversations between the two agents.
+The proposed  RL model is first trained based on the mutual information objective and thus benefits from it in addition to the RL model. 
+We observe that the RL model with dialogue simulation achieves the best evaluation score. 
+
+
+\begin{table}
+\centering
+\begin{tabular}{cc}\toprule
+Model& $\#$ of simulated turns \\\midrule
+\sts& 2.68 \\
+mutual information& 3.40\\
+RL&4.48 \\\bottomrule
+\end{tabular}
+\caption{The average number of simulated turns from standard \sts models, mutual information model and the proposed RL model.}
+\label{numturns}
+\end{table}
+
+\begin{table*}[!ht]
+\centering
+\small
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lll}\toprule
+Input Message& Mutual Information Model& RL \\
+How old are you? & I'm 16. & I'm 16, why are you asking? \\
+What's your full name? & I have no idea. & What's yours? \\
+I don't want to go home tonight. & Really? & Why? \\
+Do you have any feelings for me? & I don't know what you are talking about. &I don't want to hurt your feelings. \\
+How much time do you have here? & Not long enough. Sorry, sir. & Ten seconds. \\
+Shall we get started?& Of course! & Yes. We've got a lot of work to do here.\\
+Do you play football? & No, i don't & Yes. I love football!\\ 
+We'd have to talk to him.&I mean, he's a good guy&About what ? \\
+How come you never say it? & Because I don't want to hurt you.& I don't think it's a good idea to say it. \\\bottomrule
+\end{tabular}
+}
+\caption{Sampled responses generated from the mutual information models and the proposed RL model.}
+\label{sen}
+\end{table*}
+
+
+\begin{comment}
+\begin{table}
+\centering
+\small
+\begin{tabular}{l}\hline
+\textsc{mutual information model}\\\hline
+A: How old are you ? (initial input)\\
+B: I'm 16.\\
+A: 16 ? \\
+B: I don't know what you are talking about. (end)\\\hline
+\textsc{RL model}  \\\hline
+A: How old are you ? (initial input)\\
+B: I'm 16. Why are you asking ?\\
+A: I thought you were 12. \\
+B: What made you think so ? \\
+A: I don't know what you are talking about. (end)\\\hline
+\textsc{mutual information model}\\\hline
+A: Where are you going ? (initial input)  \\
+B: I 'm going to the restroom. \\
+A: See you later. \\
+B: See you later. \\
+A: See you later. (end) \\\hline 
+\textsc{RL model} \\\hline 
+A: Where are you going ? (initial input)  \\
+B: I 'm going to the police station .  \\
+A: I 'll come with you . \\
+B: no , no , no , no , you 're not going anywhere . \\
+A: Why? \\
+B: I need you to stay here. \\
+A: I don't know what you are talking about.  (end) \\\hline
+\end{tabular}
+\caption{Simulated Conversation from Different Models. }
+\label{simu}
+\end{table}
+\end{comment}
+
+\paragraph{Diversity} 
+We report degree of diversity by calculating
+the number of distinct unigrams and bigrams
+in generated responses. The value is scaled by the total
+number of generated tokens to avoid favoring long
+sentences as described in \newcite{li2015diversity}.
+The resulting metric is thus a type-token ratio for unigrams and bigrams.
+
+For both the standard \sts model and the proposed RL model, we use beam search with a beam size 10 to generate a response to a given input message. For the mutual information model, we first generate $n$-best lists using $p_{\sts}(y|x)$ and then linearly re-rank them using $p_{\sts}(x|y)$.
+Results are presented in Table \ref{diversity}. We find that the proposed RL model generates more diverse outputs when compared against both the vanilla \sts model and the mutual information model. 
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{cll}\toprule
+Model& Unigram&Bigram \\\midrule
+\sts& 0.0062&0.015 \\
+mutual information& 0.011&0.031\\
+RL&0.017&0.041 \\\bottomrule
+\end{tabular}
+\caption{Diversity scores (type-token ratios) for the standard \sts model, mutual information model and the proposed RL model.}
+\label{diversity}
+\end{table}
+
+
+
+\paragraph{Human Evaluation}
+We explore three settings for human evaluation:
+the first setting is similar to what was described in \newcite{li2015diversity},
+where we employ crowdsourced judges to evaluate a random sample of 500 items. 
+We present both an input message and the generated outputs to 3 judges and ask them to 
+ decide which of the two outputs is better (denoted as {\it single-turn general quality}). 
+Ties are permitted. 
+Identical strings are assigned the same score. 
+We measure the improvement achieved by the RL model over the mutual information model by the mean difference in scores between the models. 
+
+For the second setting, judges are again presented with input messages and system outputs, and are asked to decide which of the two outputs is easier to respond to so that the conversation is able to continue
+(denoted as {\it single-turn ease to answer}).
+Again we evaluate a random sample of 500 items, each being assigned to 3 judges. 
+\begin{figure}
+\begin{tabular}{p{14cm}}\hline
+{\bf Title}: Describe which response is easier to respond to (about 1 min)\\
+~~\\
+{\bf Instructions}:\\
+In each task, you are given two dialogue episodes, each of which consists two dialogue turns. The first turns of the two episodes are the same. 
+You need to decide the second turn of which dialogue episode is easier to respond to. Ties are permitted. 
+~~\\~~\\
+Each task will be assigned to three Turkers. 
+We will give bonuses for those whose results for the same task are consistent.\\\hline
+\end{tabular}
+\caption{Instructions given to turkers for the single-turn-ease-to-answer task.}
+\label{EasyTurker}
+\end{figure}
+
+
+For the third setting, judges are presented with simulated conversations between the two agents (denoted as {\it multi-turn general quality}). Each conversation consists of 5 turns. 
+We evaluate 200 simulated conversations, each being assigned to 3 judges, who are asked to decide which of the simulated conversations is of higher quality.
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{cccc} \\\hline
+Setting&RL-win&RL-lose&Tie  \\\hline
+single-turn general quality&0.40&0.36&0.24 \\
+single-turn ease to answer& 0.52&0.23&0.25\\
+multi-turn general quality&0.72&0.12&0.16\\\hline
+\end{tabular}
+\caption{RL gains over the mutual information system based on pairwise human judgments.}
+\label{human-eval}
+\end{table}
+
+Results for human evaluation are shown in Table \ref{human-eval}. 
+The proposed RL system does not introduce a significant boost in single-turn response quality (winning 40 percent of time and losing 36 percent of time).
+This is in line with our expectations, 
+as the RL model is not optimized to predict the next utterance, but rather to increase long-term reward.
+The RL system produces responses that are significantly easier to answer than 
+does the mutual information system, as demonstrated by the {\it single-turn ease to answer} setting (winning 52 percent of time and losing 23 percent of time),
+and also significantly higher quality multi-turn dialogues, as demonstrated by the {\it multi-turn general quality} setting (winning 72 percent of time).
+
+
+
+\paragraph{Qualitative Analysis and Discussion}
+We show a random sample of generated responses in Table \ref{sen} and simulated conversations in Table \ref{con-simulation} at the beginning of the paper.
+From Table \ref{sen}, we can see that the RL based agent indeed generates more interactive responses than the other baselines. We also find that the RL model has a tendency to 
+end a sentence with another question and hand the conversation over to the user. 
+From Table \ref{con-simulation}, we observe that the RL model manages to produce more interactive and sustained conversations than the mutual information model. 
+
+During error analysis, we found that although we penalize repetitive utterances in consecutive turns, the dialogue sometimes enters a cycle with length greater than one, as shown in Table \ref{he}. This can be ascribed to the 
+limited amount of conversational history we consider. 
+Another issue observed is that the model sometimes starts a less relevant topic during the conversation. There is a tradeoff between relevance and less repetitiveness, as manifested in the reward function we defined. 
+
+\begin{table}[!ht]
+\centering
+\small
+\begin{tabular}{l}\toprule
+A: What's your name ?\\
+B: Daniel.  \\
+A: How old are you ?\\
+B. Twelve. What's your name ? \\
+A. Daniel.  \\
+B: How old are you ? \\
+A: Twelve. What's your name ? \\
+B: Daniel.\\
+A: How old are you ? \\
+B ... \\\bottomrule
+\end{tabular}
+\caption{An simulated dialogue with a cycle longer than one.}
+\label{he}
+\end{table}
+
+%How to handle these problems naturally constitute our future work. 
+The fundamental problem, of course, is that the manually defined reward function 
+can't possibly cover the crucial aspects that define an ideal conversation. 
+While the heuristic rewards that we defined are amenable to automatic calculation,
+and do capture some aspects of what makes a good conversation, ideally 
+the system would instead receive real rewards from humans. But such a strategy is both costly and hard to scale up.
+As we will describe in the following section, we can train a machine to act as the role of a human evaluator and provide reward signals to train the response generation model. 
+
+\section{Conclusion}
+We introduce a reinforcement learning framework for neural response
+generation by simulating dialogues between two agents, integrating the strengths
+of neural \sts systems and reinforcement learning for dialogue.
+Like earlier neural \sts models, our framework
+captures the compositional models of the meaning of a dialogue turn and 
+generates semantically appropriate responses. Like reinforcement learning 
+dialogue systems, our framework is able to generate utterances that 
+optimize future reward, successfully capturing global properties of a good conversation.
+Despite the fact that our model uses very simple, operationable heuristics for capturing these global properties, the framework generates more diverse, interactive responses that foster a more sustained conversation. 
+
